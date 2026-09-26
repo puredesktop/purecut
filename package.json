@@ -1,0 +1,62 @@
+{
+  "name": "@puredesktop/purecut",
+  "version": "0.205.1",
+  "private": true,
+  "license": "MPL-2.0",
+  "type": "module",
+  "workspaces": [
+    "apps/web",
+    "packages/assets",
+    "packages/dapi",
+    "packages/encoder",
+    "packages/jsx",
+    "packages/koota-solid",
+    "packages/reconciler",
+    "packages/runtime"
+  ],
+  "scripts": {
+    "dev": "node scripts/purecut-dev.mjs",
+    "build": "node scripts/purecut-dev.mjs --build",
+    "postinstall": "patch-package",
+    "lint": "npm run lint --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build:purecut": "node scripts/purecut-dev.mjs --build",
+    "test:purecut": "node scripts/test-projects.mjs",
+    "test:purecut:tools": "node scripts/test-source-tools.mjs",
+    "test:purecut:disk": "node scripts/test-disk-editor.mjs",
+    "test:purecut:native": "node scripts/test-native-editor.mjs",
+    "check:purecut": "npm run check:dependencies && tsc --noEmit -p apps/web/tsconfig.app.json && tsc --noEmit -p purecut/tsconfig.json && tsc --noEmit -p purecut/tsconfig.frame.json",
+    "test:purecut:browser": "node scripts/smoke-purecut.mjs",
+    "typecheck": "npm run check:purecut",
+    "puredesktop:check": "node scripts/validate-puredesktop-app.mjs",
+    "test:purecut:speech": "node scripts/test-speech.mjs && node scripts/test-speech-browser.mjs",
+    "test:purecut:speech:native": "node scripts/test-speech-electron.mjs",
+    "check:dependencies": "node scripts/check-dependencies.mjs"
+  },
+  "devDependencies": {
+    "@types/babel__standalone": "^7.1.9",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "patch-package": "^8.0.1",
+    "playwright": "^1.63.0",
+    "@types/babel__core": "^7.20.5",
+    "esbuild": "^0.28.1"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "@babel/standalone": "^7.29.8",
+    "@lobehub/icons-static-svg": "^1.95.0",
+    "@purescience/platform-ui": "file:../../packages/ui",
+    "assert": "^2.1.0",
+    "lucide-react": "^1.47.0",
+    "path-browserify": "^1.0.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "styled-components": "^6.5.3",
+    "@purescience/platform-bridge": "file:../../packages/bridge",
+    "@babel/core": "^7.29.7",
+    "babel-preset-solid": "^1.9.12",
+    "ts-morph": "^28.0.0"
+  }
+}

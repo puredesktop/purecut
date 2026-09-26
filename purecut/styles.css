@@ -1,0 +1,186 @@
+/* AppFrame/shell provide the glass window. Keep the iframe transparent so
+   the desktop's existing glass shows through rather than painting a slab. */
+:root[data-app="cut"] {
+  color-scheme: normal !important;
+}
+:root[data-app="cut"],
+:root[data-app="cut"] body {
+  background: transparent !important;
+}
+:root[data-app="cut"] body,
+:root[data-app="cut"] #cut-editor {
+  --background: var(--pure-chrome-surface);
+  --sidebar: transparent;
+  --canvas: var(--pure-chrome-well);
+  --foreground: var(--platform-colors-text);
+  --card: var(--pure-chrome-wordmark-bar);
+  --card-foreground: var(--foreground);
+  --popover: var(--pure-chrome-paper);
+  --popover-foreground: var(--foreground);
+  --secondary: var(--pure-chrome-well);
+  --secondary-foreground: var(--foreground);
+  --secondary-hover: var(--platform-colors-surface-muted);
+  --muted: var(--pure-chrome-well);
+  --muted-foreground: var(--platform-colors-text-muted);
+  --accent: var(--pure-chrome-selection);
+  --accent-foreground: var(--foreground);
+  --border: var(--pure-chrome-hairline);
+  --border-strong: var(--pure-chrome-hairline);
+  --border-input: var(--platform-colors-border-strong);
+  --input: var(--pure-chrome-well);
+  --font-sans: var(--platform-typography-font-family, sans-serif);
+  color: var(--foreground);
+  color-scheme: light;
+}
+#cut-editor {
+  background: transparent;
+  font-family: var(--platform-typography-font-family, sans-serif);
+}
+#cut-editor > .h-screen {
+  height: 100% !important;
+}
+:root[data-platform-theme="dark"] body,
+:root[data-platform-theme="dark"] #cut-editor {
+  color-scheme: dark;
+}
+/* Floating editor controls and library cards share the window's soft edges. */
+#cut-editor .cut-toolbar {
+  --background: var(--pure-chrome-paper);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+
+/* ---------------------------------------------------------------------------
+   The desktop's look, not the upstream editor's.
+
+   PureCut is a fork of a standalone dark web editor. Inside PureDesktop it
+   sits in a pale glass window beside PureBook and PureWriter, so it takes the
+   suite's paper surfaces, hairlines, accent and label style. The stage stays
+   dark on purpose: video is judged against black, not against paper.
+   --------------------------------------------------------------------------- */
+:root[data-app="cut"] body,
+:root[data-app="cut"] #cut-editor {
+  --primary: var(--pure-chrome-accent, #1f6f8b);
+  --primary-foreground: #ffffff;
+  --primary-hover: color-mix(in srgb, var(--pure-chrome-accent, #1f6f8b) 88%, #000);
+  --primary-pressing: color-mix(in srgb, var(--pure-chrome-accent, #1f6f8b) 78%, #000);
+  --ring: var(--pure-chrome-accent, #1f6f8b);
+  --sidebar: var(--pure-chrome-paper);
+  --canvas: #0f141d;
+  --radius: 9px;
+}
+
+/* Section headings read as labels: mono, small, spaced, quiet — the same
+   voice the rest of the desk uses for "FRONT MATTER" or "CONTENTS". */
+:root[data-app="cut"] #cut-editor [data-panel-title] {
+  font-family: var(--platform-typography-font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--pure-chrome-muted, var(--muted-foreground));
+}
+:root[data-app="cut"] #cut-editor [data-panel-title] .text-muted-foreground {
+  letter-spacing: 0;
+}
+
+/* Panels are paper with hairlines between them, not slabs. */
+:root[data-app="cut"] #cut-editor .border-border-strong {
+  background: var(--pure-chrome-hairline, rgba(16, 22, 42, 0.09));
+}
+
+/* Numbers line up and read as measurements: the same mono face the rest of
+   the desk uses for a folio, a word count or a time. */
+:root[data-app="cut"] #cut-editor input[type="text"],
+:root[data-app="cut"] #cut-editor input[type="number"],
+:root[data-app="cut"] #cut-editor [data-inspector-number] {
+  font-variant-numeric: tabular-nums;
+}
+:root[data-app="cut"] #cut-editor .font-mono {
+  font-family: var(--platform-typography-font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sheets and menus are the desk's popovers: soft edges, a real shadow. */
+:root[data-app="cut"] #cut-editor [data-slot="dialog-content"],
+:root[data-app="cut"] [data-slot="dialog-content"] {
+  border-radius: 8px;
+  border: 1px solid var(--pure-chrome-line, var(--border));
+  box-shadow: 0 30px 80px rgba(16, 22, 42, 0.28);
+}
+
+/* Match the shared desktop chrome without changing the composition surface. */
+:root[data-app="cut"] body,
+:root[data-app="cut"] #cut-editor {
+  --background: var(--glass-surface, var(--pure-chrome-surface));
+  --sidebar: var(--glass-surface, var(--pure-chrome-surface));
+  --card: var(--glass-well, var(--pure-chrome-well));
+  --secondary: var(--glass-well, var(--pure-chrome-well));
+  --input: var(--glass-well, var(--pure-chrome-well));
+  --border: var(--glass-line, var(--pure-chrome-hairline));
+  --border-strong: var(--glass-line, var(--pure-chrome-hairline));
+  --radius: 6px;
+}
+#cut-editor .cut-command-bar {
+  min-height: 42px;
+  height: auto;
+  padding: 5px 12px;
+  gap: 4px;
+  flex-wrap: wrap;
+  background: var(--glass-surface, var(--pure-chrome-surface));
+}
+#cut-editor .cut-command-bar button { min-height: 30px; border-radius: 5px; }
+#cut-editor .cut-project-header { height: 36px !important; }
+#cut-editor .cut-toolbar {
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  transform: none;
+  translate: none !important;
+  justify-content: center;
+  border-radius: 0 !important;
+  border-width: 1px 0 0;
+  padding: 5px 8px;
+  gap: 6px;
+  background: var(--glass-surface, var(--pure-chrome-paper)) !important;
+  box-shadow: none;
+}
+#cut-editor [data-panel-title] { font-size: 11px; }
+#cut-editor input { border-radius: 4px; }
+#cut-editor .cut-layer-controls button { width: 22px !important; height: 26px !important; min-width: 22px; padding: 0; }
+.cut-playback-controls { position: absolute; bottom: 0; left: 0; right: 0; height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; border-top: 1px solid var(--border); background: var(--sidebar); }
+.cut-preview-time { min-width: 90px; text-align: center; font: 12px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.cut-preview-zoom { width: 44px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.cut-playback-controls { justify-content: safe center; overflow-x: auto; overflow-y: hidden; }
+.cut-playback-controls > * { flex-shrink: 0; }
+#cut-editor .cut-toolbar { justify-content: safe center; overflow-x: auto; overflow-y: hidden; }
+#cut-editor .cut-toolbar > * { flex-shrink: 0; }
+[data-cut-preview]:fullscreen { background: #161616; }
+[data-cut-preview]:fullscreen .cut-toolbar { display: none; }
+.cut-export-history { width: min(1100px, calc(100vw - 32px)) !important; max-width: none !important; max-height: calc(100dvh - 48px); overflow: auto; }
+.cut-export-review { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; }
+.cut-export-review section { min-width: 0; }
+.cut-export-review video { width: 100%; aspect-ratio: 16 / 9; background: #161616; }
+.cut-export-path { overflow-wrap: anywhere; font-size: 12px; }
+.cut-export-confirmation { --background: var(--platform-colors-bg); box-sizing: border-box; max-height: calc(100dvh - 48px); overflow: auto; }
+.cut-source-review { --background: var(--platform-colors-bg, white); box-sizing: border-box; max-height: calc(100dvh - 32px); overflow: auto; }
+.cut-source-review-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; min-height: 0; }
+.cut-source-review-columns section { min-width: 0; }
+.cut-source-review-columns h3 { font-size: 12px; margin-bottom: 8px; }
+.cut-source-review-columns pre { height: min(55dvh, 500px); overflow: auto; border: 1px solid var(--border); padding: 12px; font: 12px/1.6 ui-monospace, monospace; white-space: pre; }
+.cut-source-review footer { display: flex; justify-content: flex-end; gap: 8px; }
+.cut-source-review [role="alert"] { overflow-wrap: anywhere; color: var(--destructive); }
+@media (max-width: 700px) {
+  .cut-source-review-columns { grid-template-columns: minmax(0, 1fr); }
+  .cut-source-review-columns pre { height: 22dvh; }
+}
+@layer utilities {
+  [data-slot="dialog-content"].cut-source-review { min-width: 0 !important; width: min(1100px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; }
+  [data-slot="dialog-content"].cut-export-confirmation { min-width: 0 !important; width: min(512px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; }
+}
+.cut-export-row { display: flex; border-bottom: 1px solid var(--border); }
+.cut-export-row > button:first-child { flex: 1; min-width: 0; padding: 12px; display: grid; text-align: left; gap: 6px; overflow-wrap: anywhere; }
+.cut-export-row button[aria-pressed=true] { background: var(--accent); }
+@media (max-width: 700px) { .cut-export-review { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-transparency: reduce) {
+  #cut-editor .cut-toolbar { backdrop-filter: none; background: var(--pure-chrome-paper); }
+}

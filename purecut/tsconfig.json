@@ -1,0 +1,17 @@
+{
+  "extends": "../apps/web/tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../node_modules/.tmp/purecut.tsbuildinfo",
+    "allowJs": false
+  },
+  "include": [
+    "bootstrap.ts",
+    "transport.ts",
+    "drawer.ts",
+    "entry.tsx",
+    "../apps/web/src/vite-env.d.ts",
+    "lib/compiler.ts",
+    "integration.ts",
+    "../apps/web/src/purecut-env.d.ts"
+  ]
+}

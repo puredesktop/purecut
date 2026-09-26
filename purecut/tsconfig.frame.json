@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "allowJs": true,
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "vite/client"
+    ],
+    "skipLibCheck": true,
+    "tsBuildInfoFile": "../node_modules/.tmp/cut-frame.tsbuildinfo",
+    "preserveSymlinks": true
+  },
+  "include": [
+    "frame.tsx",
+    "integration-runtime.d.ts"
+  ]
+}

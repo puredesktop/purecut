@@ -1,0 +1,35 @@
+.cut-editor-content { display:flex; flex:1; min-height:0; overflow:hidden; }
+.cut-speech-panel { width:42%; max-width:640px; min-width:320px; flex-shrink:0; display:flex; flex-direction:column; min-height:0; padding:16px 20px; border-right:1px solid var(--border); overflow:auto; }
+.cut-transcript-header { flex-shrink:0; }
+.cut-transcript-header strong { font-size:18px; }
+.cut-transcript-help { font-size:12px; opacity:.65; margin:6px 0 16px; }
+.cut-transcript-body { display:flex; flex:1; min-height:0; min-width:0; flex-direction:column; }
+.cut-transcript-tools { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.cut-transcript-tools input { min-width:120px; flex:1; }
+.cut-cleanup { font-size:12px; margin:10px 0; }
+.cut-cleanup summary { cursor:pointer; padding:6px 0; }
+.cut-transcript-words { flex:1; min-height:160px; overflow:auto; user-select:text; cursor:text; outline:none; padding:12px 6px 24px; font-family:var(--platform-typography-font-family-content, sans-serif); font-size:19px; line-height:1.85; }
+.cut-transcript-words:focus-visible { outline:1px solid var(--border); outline-offset:2px; }
+.cut-transcript-paragraph { margin:0 0 24px; }
+.cut-speaker { display:block; font-family:var(--platform-typography-font-family, sans-serif); font-size:11px; opacity:.55; line-height:1.5; margin-bottom:6px; user-select:none; }
+.cut-transcript-paragraph, .cut-transcript-word { user-select:text; }
+.cut-transcript-word { border-radius:2px; }
+.cut-transcript-word:hover { background:color-mix(in srgb, currentColor 8%, transparent); }
+.cut-transcript-word.is-selected, .cut-transcript-words ::selection { background:color-mix(in srgb, #6999ff 35%, transparent); }
+.cut-transcript-word.is-playing { text-decoration:underline; text-decoration-color:#6999ff; text-underline-offset:5px; }
+.cut-selection-toolbar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding-top:12px; border-top:1px solid var(--border); }
+.cut-selection-toolbar > span { flex:1; }
+@media(max-width:760px) {
+ .cut-editor-content { flex-direction:column; }
+ .cut-speech-panel { width:100%; min-width:0; max-width:none; height:52%; min-height:230px; padding:10px 14px; border-right:0; border-bottom:1px solid var(--border); }
+ .cut-transcript-help { margin-bottom:6px; }
+ .cut-transcript-words { min-height:80px; font-size:17px; }
+}
+
+.cut-transcription-start { margin:auto 0; padding:16px 4px 28px; }
+.cut-transcription-start h2 { font-size:22px; font-weight:600; margin:28px 0 10px; }
+.cut-transcription-start p { font-size:14px; line-height:1.6; opacity:.75; margin:16px 0; }
+.cut-transcription-steps { display:flex; flex-wrap:wrap; gap:12px; padding:0; list-style:none; font-size:11px; opacity:.7; }
+.cut-transcription-steps .is-current { font-weight:700; opacity:1; }
+.cut-recording-card { display:flex; flex-direction:column; gap:7px; padding:16px; border:1px solid var(--border); border-radius:8px; font-size:12px; overflow-wrap:anywhere; }
+.cut-recording-card strong { font-size:15px; }

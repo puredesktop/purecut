@@ -1,0 +1,66 @@
+import { createRuntimeWorld, ClipDragOrigin, Computed, Locked, Selected, Source, TrimDragOrigin } from '../packages/runtime/src';
+import { createRuntimeDocument, authoredTree } from '../packages/reconciler/src';
+import { getDocumentEditor } from '../apps/web/src/engine/editor';
+import { getEditHistory } from '../apps/web/src/engine/history';
+import { moveEntityTo, trimIn, trimOut } from '../apps/web/src/engine/timing';
+import { beginClipDrag, beginTrim } from '../apps/web/src/engine/timeline/drag';
+
+export async function checkLocks() {
+  const world = createRuntimeWorld('lock-regression');
+  const document = createRuntimeDocument(world);
+  const check = (value: unknown, message: string) => { if (!value) throw Error(message); };
+  try {
+    document.setProperty(document.stage, '__source', 'lock-stage');
+    const scene = document.createElement('Scene');
+    document.setProperty(scene, '__source', 'lock-scene');
+    document.setProperty(scene, 'active', true);
+    document.insertNode(document.stage, scene);
+    const group = document.createElement('Group');
+    document.setProperty(group, '__source', 'lock-group');
+    document.insertNode(scene, group);
+    const clip = document.createElement('Rect');
+    document.setProperty(clip, '__source', 'lock-clip');
+    document.setProperty(clip, 'end', 6);
+    document.insertNode(group, clip);
+    const editor = getDocumentEditor(world);
+    const history = getEditHistory(world);
+    editor.select(clip.entity);
+    editor.editProperty(group.entity, 'locked', true);
+    check(group.entity.has(Locked) && !clip.entity.has(Selected), 'locking a parent clears child selection');
+    check(authoredTree(world, group.entity)?.props.locked === true, 'lock is retained in serializable authored state');
+    editor.select(clip.entity);
+    check(!clip.entity.has(Selected), 'locked descendants cannot be selected for gestures');
+    beginClipDrag(world, clip.entity);
+    beginTrim(world, clip.entity);
+    check(!clip.entity.has(ClipDragOrigin) && !clip.entity.has(TrimDragOrigin), 'locked clips cannot start drag or trim gestures');
+    const original = clip.entity.get(Computed)!;
+    const bounds = [original.start, original.end];
+    moveEntityTo(world, clip.entity, 30);
+    trimIn(world, clip.entity, 30);
+    trimOut(world, clip.entity, 60);
+    const current = clip.entity.get(Computed)!;
+    check(current.start === bounds[0] && current.end === bounds[1], 'locked clips reject moves and both trim edges');
+    check(editor.remove(clip.entity).length === 0 && editor.remove(group.entity).length === 0, 'delete cannot bypass parent locks');
+    check(editor.duplicateInPlace(clip.entity).length === 0, 'split cannot duplicate a locked clip');
+    check(!editor.reparent(clip.entity, scene.entity), 'reorder cannot detach a locked descendant');
+    await Promise.resolve();
+    history.undo();
+    check(!group.entity.has(Locked), 'undo unlocks the layer');
+    history.redo();
+    check(group.entity.has(Locked), 'redo restores the lock');
+    editor.editProperty(group.entity, 'locked', false);
+    await Promise.resolve();
+    editor.editProperty(clip.entity, 'locked', true);
+    check(editor.remove(group.entity).length === 0, 'unlocked containers cannot delete locked descendants');
+    editor.select(group.entity);
+    check(!group.entity.has(Selected), 'container gestures cannot indirectly move locked descendants');
+    editor.editProperty(clip.entity, 'locked', false);
+    moveEntityTo(world, clip.entity, 30);
+    check(clip.entity.get(Computed)!.start === 30, 'unlock restores ordinary editing');
+    await Promise.resolve();
+    editor.remove(clip.entity);
+    await Promise.resolve();
+    history.undo();
+    check(world.query(Source).some(entity => entity !== scene.entity && entity !== group.entity && entity.get(Computed)?.start === 30), 'undo still restores unlocked deleted clips');
+  } finally { document.dispose(); world.destroy(); }
+}

@@ -1,0 +1,332 @@
+{
+  "id": "cut",
+  "name": "PureCut",
+  "permissions": [
+    "filesystem",
+    "agents",
+    "settings"
+  ],
+  "entrypoint": {
+    "kind": "dev-url",
+    "url": "http://localhost:5560"
+  },
+  "app": {
+    "id": "plugin.cut",
+    "slug": "cut",
+    "name": "PureCut",
+    "navigationLabel": "Cut",
+    "productName": "ps.cut",
+    "kind": "desktop",
+    "description": "Local timeline video editing with your PureDesktop agent.",
+    "usePureDesktopAiPanel": true,
+    "brand": {
+      "letter": "c",
+      "label": "Cut"
+    },
+    "agents": {
+      "tools": [
+        {
+          "name": "getCutContext",
+          "description": "Read the open timeline project JSX, revision hash, playhead and fonts. Read before edits.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "proposeCutEdits",
+          "description": "Propose scoped changes to directly authored elements for user review. Apply uses normal editor undo as one step and preserves prior history. Prefer for timing, placement, appearance and text edits. Read getCutContext first; use index.tsx:<stable element id> targets. Does not edit video by transcript or change asset sources. Locked or loop-generated targets are rejected.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "baseHash": {
+                "type": "string"
+              },
+              "edits": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 20000
+                    },
+                    "props": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        },
+                        "width": {
+                          "type": "number"
+                        },
+                        "height": {
+                          "type": "number"
+                        },
+                        "rotation": {
+                          "type": "number"
+                        },
+                        "opacity": {
+                          "type": "number"
+                        },
+                        "fontSize": {
+                          "type": "number"
+                        },
+                        "fill": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "number"
+                        },
+                        "end": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "source"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "baseHash",
+              "edits"
+            ]
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "proposeCutSource",
+          "description": "Propose edited project JSX for the user to review and apply. Read getCutContext first and use its baseHash. Does not save until the user applies the proposal. Preserve unrelated content and stable ids. Prefer this over direct replacement.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "baseHash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "baseHash"
+            ]
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "replaceCutSource",
+          "description": "Replace the open project JSX using its current baseHash. Compiles before saving. Preserve unrelated content and stable ids.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "baseHash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "baseHash"
+            ]
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "checkCut",
+          "description": "Inspect the active scene for missing sources and composition problems.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "exportCut",
+          "description": "Render a scene to an MP4 in the project renders folder. Only when requested.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "requiresApproval": true
+        },
+        {
+          "name": "openCutTranscript",
+          "description": "Open the transcript panel. The user can optionally transcribe using their configured speech provider. Does not start transcription or upload audio.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "getCutTranscript",
+          "description": "Read saved transcript words and speaker labels on the active scene timeline, plus revision hash. Use pagination; query finds exact phrases in nearby words. No upload or transcription. Use this to find passages for highlights and unwanted speech.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500
+              },
+              "query": {
+                "type": "string"
+              }
+            }
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "proposeCutSpeechEdit",
+          "description": "Propose removal of spoken passages or create a separate highlight scene from selected passages. Read getCutTranscript first. Ranges are edited timeline seconds, not original media seconds. Deletions close gaps across speech and captions. Highlight preserves the original scene. User reviews before anything changes. Keep context and natural pauses between words; do not invent quotations.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "baseHash": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "delete",
+                  "highlight"
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "ranges": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 500,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "end": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "end"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "baseHash",
+              "mode",
+              "ranges"
+            ],
+            "additionalProperties": false
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "proposeCutSpeechCleanup",
+          "description": "Propose filler/repetition removal or shorten real audio silences using waveform analysis. Read getCutTranscript for the current baseHash first. Optional speech service is only needed to create the saved transcript. No uploads. User reviews and applies; nothing changes immediately. Repetitions are suggestions, not certain mistakes.",
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "baseHash": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "fillers",
+                  "pauses"
+                ]
+              },
+              "includeRepetitions": {
+                "type": "boolean",
+                "default": false
+              },
+              "minimumSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": 1.5
+              },
+              "retainSeconds": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0.3
+              }
+            },
+            "required": [
+              "baseHash",
+              "mode"
+            ]
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "proposeCutCaptions",
+          "description": "Propose generating captions from the saved transcript. Read getCutTranscript for the current baseHash first. No new transcription or upload. Replaces existing captions in the active speech scene only after user review; normal Undo restores them.",
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "baseHash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "baseHash"
+            ]
+          },
+          "requiresApproval": false
+        }
+      ]
+    },
+    "openableFileKinds": [
+      "folder"
+    ],
+    "openableNameSuffixes": [
+      ".cut"
+    ]
+  }
+}
