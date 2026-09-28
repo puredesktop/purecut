@@ -8,7 +8,7 @@ import {
   Scene,
   resolveTranscript,
 } from '@diffusionstudio/runtime'
-import { mount, authoredTree } from '@diffusionstudio/reconciler'
+import { mount, authoredTree, renderAuthored } from '@diffusionstudio/reconciler'
 import { EngineProvider, useEngineContext } from '@/engine'
 import { getDocumentEditor } from '@/engine/editor'
 import { getEditHistory } from '@/engine/history'
@@ -176,6 +176,41 @@ export async function speechFixture(host: HTMLElement) {
   setEditorSession({ world, engine, project: { dir: () => project.dir } })
   setSpeechOpen(true)
   return {
+    async addOverlay() {
+      const state = speechScene()
+      editor.insertElement(state.scene, () => renderAuthored({
+        tag: 'text', props: { name: 'Title', text: 'Overlay', start: 1, end: 5 }, children: [],
+      }))
+      await flushPendingProjectEdits()
+    },
+    async overrideChecks() {
+      const initial = speechScene()
+      const [overlay] = editor.insertElement(initial.scene, () => renderAuthored({
+        tag: 'text', props: { name: 'Keep this title', text: 'Overlay', start: 1, end: 5 }, children: [],
+      }))
+      await flushPendingProjectEdits()
+      const before = JSON.stringify(authoredTree(world, overlay))
+      let blocked = false
+      try { speechScene() } catch { blocked = true }
+      if (!blocked) throw Error('Layered editing must require an explicit override')
+      const state = speechScene({ keepOtherLayers: true })
+      if (!state.keptLayers.includes(overlay)) throw Error('Override did not preserve the overlay')
+      const duration = state.end
+      await applySpeechCuts(state, [{ start: 1, end: 1.5 }])
+      if (JSON.stringify(authoredTree(world, overlay)) !== before)
+        throw Error('Override changed overlay content or timing')
+      const after = speechScene({ keepOtherLayers: true })
+      if (Math.abs(after.end - (duration - 0.5)) > 0.01) throw Error('Recording was not cut')
+      const children = getEntityChildren(world, state.scene)
+      if (children.indexOf(overlay) < children.indexOf(after.media[0].entity))
+        throw Error('Override changed layer ordering')
+      history.undo()
+      await flushPendingProjectEdits()
+      if (Math.abs(speechScene({ keepOtherLayers: true }).end - duration) > 0.01)
+        throw Error('Override cut could not be undone')
+      editor.remove([overlay])
+      await flushPendingProjectEdits()
+    },
     configure() {
       configured = true
     },

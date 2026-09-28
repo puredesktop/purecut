@@ -76,7 +76,7 @@ function speechMediaTree(tree: AuthoredTree): boolean {
     !tree.children[0].props.frameRate
   )
 }
-export function speechScene() {
+export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
   const session = requireEditorSession(),
     { world } = session
   const scene = getActiveEntity(world)
@@ -103,7 +103,18 @@ export function speechScene() {
     throw Error('Add a video or audio clip to the scene first.')
   const fps = world.get(FrameRate)?.value ?? 30
   const quantize = (n: number) => Math.round(n * fps) / fps
-  const units = children.map(entity => {
+  const keptLayers: Entity[] = []
+  const editableChildren = children.filter(entity => {
+    const layer = authoredTree(world, entity)
+    if (options.keepOtherLayers && layer && !layer.children.length &&
+        ['text', 'rect', 'circle', 'ellipse', 'path', 'line'].includes(layer.tag.toLowerCase()) &&
+        !findGeometryAsset(world, entity) && !isLooped(entity)) {
+      keptLayers.push(entity)
+      return false
+    }
+    return true
+  })
+  const units = editableChildren.map(entity => {
     const tree = authoredTree(world, entity)
     if (
       !tree ||
@@ -168,6 +179,7 @@ export function speechScene() {
     scene,
     tree,
     units,
+    keptLayers,
     media,
     asset: asset as AudioAsset | VideoAsset,
     end,
@@ -264,7 +276,12 @@ export async function applySpeechCuts(
   )
   if (!removed.length && highlightName === undefined)
     throw Error('Select words or a suggested cut first.')
-  const trees = plannedTrees(snapshot, removed)
+  if (highlightName !== undefined && snapshot.keptLayers.length)
+    throw Error('Create highlights in a scene with only the recording and captions.')
+  const replacements = snapshot.units.flatMap(unit =>
+    plannedTrees({ ...snapshot, units: [unit] }, removed).map(tree => ({ tree, anchor: unit.entity })),
+  )
+  const trees = replacements.map(item => item.tree)
   if (!trees.some(speechMediaTree))
     throw Error('Keep at least some of the recording.')
   if (trees.length > 2000) throw Error('Apply fewer cuts in one batch.')
@@ -290,10 +307,8 @@ export async function applySpeechCuts(
     } else {
       const created: Entity[] = []
       try {
-        for (const tree of trees) {
-          const nodes = editor.insertElement(snapshot.scene, () =>
-            renderAuthored(tree),
-          )
+        for (const { tree, anchor } of replacements) {
+          const nodes = editor.insertElement(snapshot.scene, () => renderAuthored(tree), anchor)
           if (!nodes.length) throw Error('Could not insert the edited clip.')
           created.push(...nodes)
         }
