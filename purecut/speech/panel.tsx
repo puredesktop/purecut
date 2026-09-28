@@ -58,6 +58,8 @@ import {
 export function SpeechPanel() {
   const engine = useEngineContext()
   const [snapshot, setSnapshot] = createSignal<SpeechScene | null>(null)
+  const [overrideCandidate, setOverrideCandidate] = createSignal<SpeechScene | null>(null)
+  let approvedScene: SpeechScene['scene'] | undefined
   const [transcript, setTranscript] = createSignal<Transcript | null>(null)
   const [availability, setAvailability] = createSignal<Availability>({
     provider: null,
@@ -165,10 +167,25 @@ export function SpeechPanel() {
     anchor = undefined
     setTranscript(null)
     setSnapshot(null)
+    setOverrideCandidate(null)
     setStale(false)
     setAvailability(await speechAvailability())
     await flushPendingProjectEdits()
-    const next = speechScene()
+    let next: SpeechScene
+    try {
+      next = speechScene()
+    } catch (originalError) {
+      let candidate: SpeechScene
+      try { candidate = speechScene({ keepOtherLayers: true }) }
+      catch { throw originalError }
+      if (!candidate.keptLayers.length) throw originalError
+      if (approvedScene !== candidate.scene) {
+        approvedScene = undefined
+        setOverrideCandidate(candidate)
+        throw originalError
+      }
+      next = candidate
+    }
     const data = await loadTranscript(next)
     if (revision !== generation) return
     assertCurrent(next)
@@ -178,6 +195,7 @@ export function SpeechPanel() {
   createEffect(() => {
     if (speechOpen()) untrack(() => void run(refresh))
     else {
+      approvedScene = undefined
       controller?.abort()
       stopPreview?.()
       setSpeechReview(null)
@@ -298,10 +316,13 @@ export function SpeechPanel() {
           </Button>
         </div>
         <p class="cut-transcript-help">{transcript() ? 'Select text and press Delete to cut the video. ⌘/Ctrl Z to undo.' : 'Turn speech into text you can edit.'}</p>
-        <Show when={error()}>
+        <Show when={error() && (snapshot() || transcript())}>
           <p role="alert" class="text-sm text-destructive mb-2">
             {error()}
           </p>
+        </Show>
+        <Show when={snapshot()?.keptLayers.length}>
+          <p role="status" class="text-sm mb-2"><strong>Editing recording only.</strong> Text and graphics stay at their current times. After cutting speech, check their timing and adjust them if needed. You can undo cuts.</p>
         </Show>
         <Show when={stale()}>
           <p role="status" class="text-sm mb-2">
@@ -310,6 +331,7 @@ export function SpeechPanel() {
         </Show>
         <Show when={!transcript()}>
           <div class="cut-transcription-start">
+          <Show when={!snapshot() && error()} fallback={<>
           <ol class="cut-transcription-steps" aria-label="Transcription steps">
             <li classList={{ 'is-current': !snapshot() }}>1 · Add recording</li>
             <li classList={{ 'is-current': !!snapshot() }}>2 · Transcribe</li>
@@ -355,6 +377,22 @@ export function SpeechPanel() {
             >
               Transcribe recording
             </Button></Show>
+          </Show>
+          </>}>
+            <h2>This scene isn’t ready for transcription</h2>
+            <p role="alert">{error()}</p>
+            <Show when={overrideCandidate()}>
+              <p>You can edit just the recording and captions. Text and graphics will stay at their current times, so you may need to move them after cutting speech.</p>
+              <Button disabled={busy()} onClick={() => void run(async () => {
+                const candidate = overrideCandidate()
+                if (!candidate) return
+                assertCurrent(candidate)
+                approvedScene = candidate.scene
+                await refresh()
+              })}>Edit recording only</Button>
+            </Show>
+            <p>Once the scene is ready, choose Refresh scene. Nothing has been uploaded or changed.</p>
+            <Button disabled={busy()} onClick={() => void run(refresh)}>Refresh scene</Button>
           </Show>
           </div>
         </Show>
@@ -535,7 +573,7 @@ export function SpeechPanel() {
             <div class="cut-selection-toolbar" aria-label="Transcript selection">
               <span class="text-xs text-muted-foreground">{selected().length ? `${selected().length} words selected` : 'Click to seek · Drag to select'}</span>
               <Button disabled={!selected().length || !!speechReview()} onClick={cutSelection}>Cut selection</Button>
-              <Button variant="ghost" disabled={!selected().length} onClick={() => void run(async () => makeHighlight())}>Create highlight</Button>
+              <Button variant="ghost" disabled={!selected().length || !!snapshot()?.keptLayers.length} title={snapshot()?.keptLayers.length ? "Highlights need a scene with only the recording and captions" : undefined} onClick={() => void run(async () => makeHighlight())}>Create highlight</Button>
             </div>
             <details class="text-xs mt-2">
               <summary>Speaker names</summary>

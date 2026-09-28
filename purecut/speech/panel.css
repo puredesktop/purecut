@@ -26,7 +26,7 @@
  .cut-transcript-words { min-height:80px; font-size:17px; }
 }
 
-.cut-transcription-start { margin:auto 0; padding:16px 4px 28px; }
+.cut-transcription-start { margin:0; padding:16px 4px 28px; }
 .cut-transcription-start h2 { font-size:22px; font-weight:600; margin:28px 0 10px; }
 .cut-transcription-start p { font-size:14px; line-height:1.6; opacity:.75; margin:16px 0; }
 .cut-transcription-steps { display:flex; flex-wrap:wrap; gap:12px; padding:0; list-style:none; font-size:11px; opacity:.7; }

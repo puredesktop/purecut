@@ -108,7 +108,9 @@ export async function transcribeSource(
           )
         if (!result.result.words?.length)
           throw Error(
-            'This provider returned speaker turns without word timestamps. Choose a provider that transcribes words.',
+            result.result.turns.length
+              ? 'Speech was detected, but the service did not return timing for each word. Try again or choose another transcription provider.'
+              : 'No speech was detected. Try a recording with spoken dialogue.',
           )
         return validateTranscript(
           {

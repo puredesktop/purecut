@@ -235,7 +235,17 @@ try {
     red[0] > 180 && red[1] < 80 && green[1] > 180 && green[0] < 80,
     'video cut stays aligned with audio',
   )
+  await page.evaluate(() => window.speechFixture.overrideChecks())
   await page.evaluate(() => window.speechFixture.highlightChecks())
+  const uploadsBeforeOverride = (await page.evaluate(() => window.speechFixture.state())).started
+  await page.evaluate(() => window.speechFixture.addOverlay())
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  const override = page.getByRole('button', { name: 'Edit recording only', exact: true })
+  await override.waitFor()
+  await override.click()
+  await page.getByText('Editing recording only.', { exact: true }).waitFor()
+  assert.equal((await page.evaluate(() => window.speechFixture.state())).started, uploadsBeforeOverride,
+    'override must not upload media')
   await page.evaluate(() => window.speechFixture.dispose())
   assert.deepEqual(errors, [])
   console.log(
