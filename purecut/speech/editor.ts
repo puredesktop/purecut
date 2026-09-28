@@ -114,7 +114,7 @@ export function speechScene() {
       isLooped(entity)
     )
       throw Error(
-        'Speech editing currently supports a single speech track and captions. Use a separate scene for layered compositions.',
+        'This scene has text, shapes, or other layers that transcript editing cannot safely cut. Create a separate scene containing only your video or audio recording, then open Transcript there. Existing captions are supported.',
       )
     if (
       numeric(tree.props.playbackRate, 1) !== 1 ||

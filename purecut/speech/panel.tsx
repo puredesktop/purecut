@@ -298,7 +298,7 @@ export function SpeechPanel() {
           </Button>
         </div>
         <p class="cut-transcript-help">{transcript() ? 'Select text and press Delete to cut the video. ⌘/Ctrl Z to undo.' : 'Turn speech into text you can edit.'}</p>
-        <Show when={error()}>
+        <Show when={error() && (snapshot() || transcript())}>
           <p role="alert" class="text-sm text-destructive mb-2">
             {error()}
           </p>
@@ -310,6 +310,7 @@ export function SpeechPanel() {
         </Show>
         <Show when={!transcript()}>
           <div class="cut-transcription-start">
+          <Show when={!snapshot() && error()} fallback={<>
           <ol class="cut-transcription-steps" aria-label="Transcription steps">
             <li classList={{ 'is-current': !snapshot() }}>1 · Add recording</li>
             <li classList={{ 'is-current': !!snapshot() }}>2 · Transcribe</li>
@@ -355,6 +356,12 @@ export function SpeechPanel() {
             >
               Transcribe recording
             </Button></Show>
+          </Show>
+          </>}>
+            <h2>This scene isn’t ready for transcription</h2>
+            <p role="alert">{error()}</p>
+            <p>Once the scene is ready, choose Refresh scene. Nothing has been uploaded or changed.</p>
+            <Button disabled={busy()} onClick={() => void run(refresh)}>Refresh scene</Button>
           </Show>
           </div>
         </Show>
