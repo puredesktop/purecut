@@ -107,7 +107,7 @@ export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
   const editableChildren = children.filter(entity => {
     const layer = authoredTree(world, entity)
     if (options.keepOtherLayers && layer && !layer.children.length &&
-        ['text', 'rect', 'circle', 'ellipse', 'path', 'line'].includes(layer.tag.toLowerCase()) &&
+        ['text', 'rect', 'circle', 'ellipse', 'path', 'line', 'sequence'].includes(layer.tag.toLowerCase()) &&
         !findGeometryAsset(world, entity) && !isLooped(entity)) {
       keptLayers.push(entity)
       return false

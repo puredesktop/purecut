@@ -189,11 +189,16 @@ export async function speechFixture(host: HTMLElement) {
         tag: 'text', props: { name: 'Keep this title', text: 'Overlay', start: 1, end: 5 }, children: [],
       }))
       await flushPendingProjectEdits()
+      const [emptyTrack] = editor.insertElement(initial.scene, () => renderAuthored({
+        tag: 'sequence', props: { name: 'Layer 1' }, children: [],
+      }))
+      await flushPendingProjectEdits()
       const before = JSON.stringify(authoredTree(world, overlay))
       let blocked = false
       try { speechScene() } catch { blocked = true }
       if (!blocked) throw Error('Layered editing must require an explicit override')
       const state = speechScene({ keepOtherLayers: true })
+      if (!state.keptLayers.includes(emptyTrack)) throw Error('Empty tracks must allow the override')
       if (!state.keptLayers.includes(overlay)) throw Error('Override did not preserve the overlay')
       const duration = state.end
       await applySpeechCuts(state, [{ start: 1, end: 1.5 }])
@@ -208,7 +213,7 @@ export async function speechFixture(host: HTMLElement) {
       await flushPendingProjectEdits()
       if (Math.abs(speechScene({ keepOtherLayers: true }).end - duration) > 0.01)
         throw Error('Override cut could not be undone')
-      editor.remove([overlay])
+      editor.remove([overlay, emptyTrack])
       await flushPendingProjectEdits()
     },
     configure() {
