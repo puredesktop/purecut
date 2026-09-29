@@ -53,8 +53,8 @@ works through the normal `pure-app` protocol.
 - `npm run test:purecut`: browser compiler, stable ids, manual/source edits,
   stale revisions, invalid imports, path traversal, bounded binary reads,
   byte preservation, random-access export writes and project reopen.
-- `npm run build` and `npm run puredesktop:check`: static artifact and actual
-  ps-suite manifest schema, identity, permissions and command validation.
+- `npm run build`: static artifact. PureDesktop validates `plugin.json` when
+  loading the app.
 - `npm run test:purecut:browser`: actual built app in Electron; real local
   A/V import, drawer source edit, scene check, MP4 export with audible tail,
   and reload persistence. Runs without a Vite runtime or Node sidecar.

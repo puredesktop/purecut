@@ -45,7 +45,6 @@ npm run typecheck
 npm run test:purecut
 npm run test:purecut:speech
 npm run build
-npm run puredesktop:check
 PURECUT_CDP_URL=http://127.0.0.1:9333 npm run test:purecut:browser
 ```
 

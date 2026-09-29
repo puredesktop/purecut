@@ -29,7 +29,6 @@
     "check:purecut": "npm run check:dependencies && tsc --noEmit -p apps/web/tsconfig.app.json && tsc --noEmit -p purecut/tsconfig.json && tsc --noEmit -p purecut/tsconfig.frame.json",
     "test:purecut:browser": "node scripts/smoke-purecut.mjs",
     "typecheck": "npm run check:purecut",
-    "puredesktop:check": "node scripts/validate-puredesktop-app.mjs",
     "test:purecut:speech": "node scripts/test-speech.mjs && node scripts/test-speech-browser.mjs",
     "test:purecut:speech:native": "node scripts/test-speech-electron.mjs",
     "check:dependencies": "node scripts/check-dependencies.mjs"
