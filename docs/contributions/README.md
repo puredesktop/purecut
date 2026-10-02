@@ -1,27 +1,105 @@
-# purecut: contribution briefs
+# purecut contribution roadmap
 
-The first five items are small, visible starting points. Sizes describe scope rather than elapsed time. Read the linked brief before changing code.
+[View roadmap issues](https://github.com/puredesktop/purecut/issues?q=is%3Aissue%20label%3Aroadmap)
 
-| Item | Size | Start here |
-| --- | --- | --- |
-| [Read full clip names on the timeline](clip-name-tooltips.md) | Small | Good first contribution |
-| [See the duration of a selected clip](selection-duration-readout.md) | Small | Good first contribution |
-| [Spot muted tracks immediately](muted-track-visibility.md) | Small | Good first contribution |
-| [See where you are in transcript search](transcript-search-counts.md) | Small | Good first contribution |
-| [Review video settings before export](export-settings-recap.md) | Small | Good first contribution |
-| [Locate the media a scene is missing](missing-media-row-details.md) | Medium |  |
-| [See which files imported successfully](media-import-outcome-summary.md) | Medium |  |
-| [Read consistent timecodes throughout the editor](consistent-timecode-display.md) | Medium |  |
-| [Understand why a trim stops](trim-boundary-feedback.md) | Medium |  |
-| [Return to a useful timeline zoom](timeline-zoom-reset-hint.md) | Small |  |
-| [Check the passage before cutting](transcript-selection-summary.md) | Medium |  |
-| [See what is needed to start transcription](speech-setup-diagnosis.md) | Medium |  |
-| [Follow transcription progress](transcription-progress-wording.md) | Medium |  |
-| [Keep editing a saved transcript offline](saved-transcript-availability.md) | Small |  |
-| [Review filler words in context](filler-suggestion-context.md) | Medium |  |
-| [Preview which pauses cleanup will shorten](silence-threshold-explanation.md) | Medium |  |
-| [Find captions that are too long](caption-length-feedback.md) | Medium |  |
-| [Compare caption contrast on bright and dark frames](caption-preview-contrast.md) | Medium |  |
-| [Name a highlight before creating it](highlight-naming-feedback.md) | Medium |  |
-| [Retry export with your settings intact](export-failure-recovery-text.md) | Medium |  |
-| [Compare caption styles before applying](compare-caption-styles-before-applying.md) | Large |  |
+Build something you can see and try in the app. The first five items are **good first contributions**: bounded changes with a concrete demonstration. Choose a feature below, fix a bug, or propose your own improvement.
+
+## Scope
+
+Keep local timeline editing, JSX as project source, and the existing optional transcript, caption and export workflows.
+
+Size describes scope, not a promised completion time: **Small** = one focused interface change; **Medium** = coordinated interface/state work; **Large** = a feature across several flows, storage or export paths. All items are proposals, not claims that existing features are absent. Check the current code and extend what is there. Maintainers review code and tests before merging. Attribution is your choice.
+
+## Good first contributions
+
+1. **[Read full clip names on the timeline.](https://github.com/puredesktop/purecut/issues/2)** Show the full source name and scene context when a timeline clip label is truncated, including for keyboard focus where available.
+   <!-- contribution: {"id": "clip-name-tooltips", "size": "small", "goodFirstIssue": true, "guide": "docs/contributions/clip-name-tooltips.md"} -->
+   [Small · Good first contribution · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/clip-name-tooltips.md)
+
+2. **[See the duration of a selected clip.](https://github.com/puredesktop/purecut/issues/3)** Display the current selected clip or passage duration beside its start and end positions for more precise trimming.
+   <!-- contribution: {"id": "selection-duration-readout", "size": "small", "goodFirstIssue": true, "guide": "docs/contributions/selection-duration-readout.md"} -->
+   [Small · Good first contribution · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/selection-duration-readout.md)
+
+3. **[Spot muted tracks immediately.](https://github.com/puredesktop/purecut/issues/4)** Make muted audio state visible on the track header and its accessible label without relying solely on colour.
+   <!-- contribution: {"id": "muted-track-visibility", "size": "small", "goodFirstIssue": true, "guide": "docs/contributions/muted-track-visibility.md"} -->
+   [Small · Good first contribution · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/muted-track-visibility.md)
+
+4. **[See where you are in transcript search.](https://github.com/puredesktop/purecut/issues/5)** Show the active match number and total matches beside transcript search, updating after an edit changes the transcript.
+   <!-- contribution: {"id": "transcript-search-counts", "size": "small", "goodFirstIssue": true, "guide": "docs/contributions/transcript-search-counts.md"} -->
+   [Small · Good first contribution · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/transcript-search-counts.md)
+
+5. **[Review video settings before export.](https://github.com/puredesktop/purecut/issues/6)** Summarize output dimensions, frame rate and selected scope immediately before export using the current settings.
+   <!-- contribution: {"id": "export-settings-recap", "size": "small", "goodFirstIssue": true, "guide": "docs/contributions/export-settings-recap.md"} -->
+   [Small · Good first contribution · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/export-settings-recap.md)
+
+## More improvements
+
+6. **[Locate the media a scene is missing.](https://github.com/puredesktop/purecut/issues/7)** Show the missing source filename and affected scene in the existing media error state so users can identify the file that needs attention.
+   <!-- contribution: {"id": "missing-media-row-details", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/missing-media-row-details.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/missing-media-row-details.md)
+
+7. **[See which files imported successfully.](https://github.com/puredesktop/purecut/issues/8)** Report which selected files imported successfully and which failed, retaining successful imports and giving a useful reason per failure.
+   <!-- contribution: {"id": "media-import-outcome-summary", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/media-import-outcome-summary.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/media-import-outcome-summary.md)
+
+8. **[Read consistent timecodes throughout the editor.](https://github.com/puredesktop/purecut/issues/9)** Use the project's frame rate consistently in timeline, selection and export time labels so the same position is not shown differently across panels.
+   <!-- contribution: {"id": "consistent-timecode-display", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/consistent-timecode-display.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/consistent-timecode-display.md)
+
+9. **[Understand why a trim stops.](https://github.com/puredesktop/purecut/issues/10)** Make minimum clip length and source-media boundary constraints visible when a trim reaches them instead of appearing to stop without explanation.
+   <!-- contribution: {"id": "trim-boundary-feedback", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/trim-boundary-feedback.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/trim-boundary-feedback.md)
+
+10. **[Return to a useful timeline zoom.](https://github.com/puredesktop/purecut/issues/11)** Expose a clear description of the existing fit or reset action and its shortcut so users can recover after zooming deeply into a clip.
+   <!-- contribution: {"id": "timeline-zoom-reset-hint", "size": "small", "goodFirstIssue": false, "guide": "docs/contributions/timeline-zoom-reset-hint.md"} -->
+   [Small · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/timeline-zoom-reset-hint.md)
+
+11. **[Check the passage before cutting.](https://github.com/puredesktop/purecut/issues/12)** Show the start, end and duration of a selected passage before a transcript cut, using current edited timeline times.
+   <!-- contribution: {"id": "transcript-selection-summary", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/transcript-selection-summary.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/transcript-selection-summary.md)
+
+12. **[See what is needed to start transcription.](https://github.com/puredesktop/purecut/issues/13)** Distinguish no recording, unsupported scene structure and unavailable speech service in the transcript setup panel with an appropriate next step for each.
+   <!-- contribution: {"id": "speech-setup-diagnosis", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/speech-setup-diagnosis.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/speech-setup-diagnosis.md)
+
+13. **[Follow transcription progress.](https://github.com/puredesktop/purecut/issues/14)** Separate waiting, uploading and processing states when the provider exposes them, while retaining the existing cloud-upload consent flow.
+   <!-- contribution: {"id": "transcription-progress-wording", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/transcription-progress-wording.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/transcription-progress-wording.md)
+
+14. **[Keep editing a saved transcript offline.](https://github.com/puredesktop/purecut/issues/15)** Explain that an existing transcript can still be edited when the speech service is unavailable, so users do not assume they must retranscribe.
+   <!-- contribution: {"id": "saved-transcript-availability", "size": "small", "goodFirstIssue": false, "guide": "docs/contributions/saved-transcript-availability.md"} -->
+   [Small · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/saved-transcript-availability.md)
+
+15. **[Review filler words in context.](https://github.com/puredesktop/purecut/issues/16)** Include a few surrounding words and the current timestamp in each cleanup suggestion so users can judge it before removing speech.
+   <!-- contribution: {"id": "filler-suggestion-context", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/filler-suggestion-context.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/filler-suggestion-context.md)
+
+16. **[Preview which pauses cleanup will shorten.](https://github.com/puredesktop/purecut/issues/17)** Describe the existing silence threshold in plain language beside its control and preview the number of affected gaps before applying cleanup.
+   <!-- contribution: {"id": "silence-threshold-explanation", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/silence-threshold-explanation.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/silence-threshold-explanation.md)
+
+17. **[Find captions that are too long.](https://github.com/puredesktop/purecut/issues/18)** Flag unusually long caption text in the existing caption editor and point to the caption that needs shortening or splitting.
+   <!-- contribution: {"id": "caption-length-feedback", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/caption-length-feedback.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/caption-length-feedback.md)
+
+18. **[Compare caption contrast on bright and dark frames.](https://github.com/puredesktop/purecut/issues/19)** Improve the caption settings preview so text, background and outline remain distinguishable on both bright and dark sample frames.
+   <!-- contribution: {"id": "caption-preview-contrast", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/caption-preview-contrast.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/caption-preview-contrast.md)
+
+19. **[Name a highlight before creating it.](https://github.com/puredesktop/purecut/issues/20)** Pre-fill a short editable name from the chosen passage and distinguish newly created highlight scenes from their source scene.
+   <!-- contribution: {"id": "highlight-naming-feedback", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/highlight-naming-feedback.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/highlight-naming-feedback.md)
+
+20. **[Retry export with your settings intact.](https://github.com/puredesktop/purecut/issues/21)** Retain the last export settings after failure and identify whether media decoding, rendering or output writing failed when that information is available.
+   <!-- contribution: {"id": "export-failure-recovery-text", "size": "medium", "goodFirstIssue": false, "guide": "docs/contributions/export-failure-recovery-text.md"} -->
+   [Medium · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/export-failure-recovery-text.md)
+
+21. **[Compare caption styles before applying.](https://github.com/puredesktop/purecut/issues/22)** Add a side-by-side caption style preview on the current frame, with a choice to apply a style to one caption or all captions in the scene. Preserve transcript words and timing.
+   <!-- contribution: {"id": "compare-caption-styles-before-applying", "size": "large", "goodFirstIssue": false, "guide": "docs/contributions/compare-caption-styles-before-applying.md"} -->
+   [Large · Implementation brief](https://github.com/puredesktop/purecut/blob/main/docs/contributions/compare-caption-styles-before-applying.md)
+
+## References
+
+- [App guide](https://github.com/puredesktop/purecut/blob/main/docs/app-guide.md)
+- [Development guide](https://github.com/puredesktop/purecut/blob/main/docs/development.md)
+- [Contributing](https://github.com/puredesktop/purecut/blob/main/CONTRIBUTING.md)
