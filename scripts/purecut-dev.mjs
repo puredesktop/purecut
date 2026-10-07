@@ -19,6 +19,7 @@ await build({
   bundle: true,
   format: "esm",
   platform: "browser",
+  loader: { ".woff2": "file", ".woff": "file", ".ttf": "file" },
   jsx: "automatic",
   jsxImportSource: "react",
   alias: {
