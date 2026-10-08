@@ -21,6 +21,22 @@ import { containsLocked } from '@/engine/locking';
 
 import type { Entity } from 'koota';
 
+/** The fader's setting, as the mono readout the desk uses for measurements. */
+function GainReadout(props: { volume: number; disabled: boolean }) {
+  const text = () => {
+    const db = Math.round(props.volume);
+    return db === 0 ? '0 dB' : `${db > 0 ? '+' : '\u2212'}${Math.abs(db)} dB`;
+  };
+  return (
+    <span
+      class="cut-gain-readout h-4 shrink-0 text-xxs leading-4 font-mono tabular-nums"
+      classList={{ 'text-muted-foreground/60': props.disabled, 'text-foreground': !props.disabled }}
+    >
+      {text()}
+    </span>
+  );
+}
+
 /** A layer's name, following a rename. */
 function LayerName(props: { entity: Entity | undefined }) {
   const name = useTrait(() => props.entity, Name);
@@ -113,9 +129,10 @@ export function Soundboard() {
   }
 
   return (
-    <div class="soundboard flex items-stretch h-full w-full justify-between px-4 pt-4 pb-1">
+    <div class="soundboard flex items-stretch h-full w-full justify-between px-4 pt-2 pb-1">
       <div class="flex flex-col items-center h-full gap-2">
-        <div class="flex flex-1 min-h-0">
+        <GainReadout volume={leftMeterVolume()} disabled={!leftMeterNode()} />
+        <div class="flex flex-1 min-h-0 pt-1">
           <VolumeControl
             label="Left track volume"
             volume={leftMeterVolume()}
@@ -147,7 +164,8 @@ export function Soundboard() {
         </div>
       </div>
       <div class="flex flex-col items-center h-full gap-2">
-        <div class="flex flex-1 min-h-0">
+        <GainReadout volume={rightMeterVolume()} disabled={!rightMeterNode()} />
+        <div class="flex flex-1 min-h-0 pt-1">
           <VolumeControl
             label="Right track volume"
             volume={rightMeterVolume()}
@@ -179,7 +197,8 @@ export function Soundboard() {
         </div>
       </div>
       <div class="flex flex-col items-center h-full gap-2">
-        <div class="flex flex-1 min-h-0">
+        <GainReadout volume={masterVolume()} disabled={!masterNode()} />
+        <div class="flex flex-1 min-h-0 pt-1">
           <VolumeControl
             label="Master volume"
             volume={masterVolume()}
@@ -190,7 +209,7 @@ export function Soundboard() {
           <MeterScale />
         </div>
         <div class="h-6 flex items-center justify-center shrink-0">
-          <span class="text-base text-muted-foreground">Master</span>
+          <span class="text-xs text-muted-foreground">Master</span>
         </div>
       </div>
     </div>

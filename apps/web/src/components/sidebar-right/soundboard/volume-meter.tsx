@@ -21,18 +21,26 @@ function amplitudeToMeterPct(amplitude: number): number {
   return ((db - MIN_DB) / (MAX_DB - MIN_DB)) * 100;
 }
 
+/** Maps a level in dB to a meter percentage (0 at the floor, 100 at the top). */
+function dbToMeterPct(db: number): number {
+  return ((Math.max(MIN_DB, Math.min(MAX_DB, db)) - MIN_DB) / (MAX_DB - MIN_DB)) * 100;
+}
+
+/** Healthy up to -12 dB, hot to -3 dB, too loud above it. */
+const GREEN_END = dbToMeterPct(-12);
+const YELLOW_END = dbToMeterPct(-3);
+
 /**
- * Color stop thresholds (as percentage of meter height):
- *   0–60%   green
- *  60–85%   yellow
- *  85–100%  red
+ * One continuous ramp rather than three slabs: the level reads as a single
+ * bar that warms as it climbs. The stops sit on the dB zones above.
  */
-const GREEN_END = 60;
-const YELLOW_END = 80;
+const METER_GRADIENT = `linear-gradient(to top,
+  var(--color-meter-green) 0%, var(--color-meter-green) ${GREEN_END - 4}%,
+  var(--color-meter-yellow) ${GREEN_END + 4}%, var(--color-meter-yellow) ${YELLOW_END - 2}%,
+  var(--color-meter-red) ${YELLOW_END + 2}%)`;
 
-const SCALE_LABELS = ['0', '-3', '-6', '-12', '-24', 'dB'];
-
-const MINOR_TICKS_PER_SEGMENT = 3;
+/** Scale marks, placed at the level they name — not spread evenly. */
+const SCALE_MARKS = [0, -6, -12, -24, -48];
 
 type VolumeMeterProps = {
   audioNode?: GainNode;
@@ -52,15 +60,15 @@ export function VolumeMeter(props: VolumeMeterProps) {
   onCleanup(() => meter.disconnect());
 
   return (
-    <div class="relative flex gap-px w-5" title={meter.error() ?? undefined}>
-      <button type="button" class="absolute -top-3 left-0 w-full h-2 rounded-xs"
+    <div class="cut-meter relative flex gap-0.5 w-2.5" title={meter.error() ?? undefined}>
+      <button type="button" class="cut-meter-clip absolute -top-3 left-1/2 -translate-x-1/2 size-1.5 rounded-full"
         classList={{ 'bg-meter-red': meter.clipped(), 'bg-input': !meter.clipped() }}
         aria-label={meter.error() ? 'Audio meter unavailable' : 'Reset clipping warning'}
         aria-pressed={meter.clipped()} disabled={!props.audioNode || !!meter.error()}
         title={meter.error() ?? (meter.clipped() ? 'Clipping detected. Reset warning' : 'No clipping detected')}
         onClick={meter.resetClipping} />
-      <VerticalMeter channel={0} levels={meter.levels} class="rounded-l" />
-      <VerticalMeter channel={1} levels={meter.levels} class="rounded-r" />
+      <VerticalMeter channel={0} levels={meter.levels} />
+      <VerticalMeter channel={1} levels={meter.levels} />
     </div>
   );
 }
@@ -83,55 +91,26 @@ function VerticalMeter(props: VerticalMeterProps) {
   const indicatorOffset = () => `${peakPct()}%`;
   const indicatorClass = () => {
     const pct = peakPct();
-    if (pct >= YELLOW_END + (100 - YELLOW_END) / 2) return "bg-meter-red";
+    if (pct >= YELLOW_END) return "bg-meter-red";
     if (pct >= GREEN_END) return "bg-meter-yellow";
     return "bg-meter-green";
   };
 
   return (
-    <div class={cx("h-full relative w-full overflow-clip bg-background", props.class)}>
-      <div class="absolute inset-0 bg-input" />
-
+    <div class={cx("cut-meter-bar h-full relative w-full overflow-clip rounded-full bg-input", props.class)}>
       <div
-        class="absolute inset-0"
-        style={{ "clip-path": `inset(${100 - rmsPct()}% 0 0 0)` }}
-      >
-        <MeterSegments />
-      </div>
+        class="absolute inset-0 rounded-full transition-[clip-path] duration-75 ease-out"
+        style={{ background: METER_GRADIENT, "clip-path": `inset(${100 - rmsPct()}% 0 0 0 round 999px)` }}
+      />
 
-      {/* Peak indicator line */}
+      {/* Peak hold: a short pill in the colour of the zone it reached. */}
       <Show when={peakPct() > 0.5}>
         <div
-          class={cx("absolute inset-x-0 h-px", indicatorClass())}
-          style={{ bottom: indicatorOffset() }}
+          class={cx("absolute inset-x-0 h-0.5 rounded-full", indicatorClass())}
+          style={{ bottom: `calc(${indicatorOffset()} - 1px)` }}
         />
       </Show>
     </div>
-  );
-}
-
-function MeterSegments() {
-  return (
-    <>
-      {/* Green: bottom 60% */}
-      <div
-        class="absolute inset-x-0 bottom-0 bg-meter-green"
-        style={{ height: `${GREEN_END}%` }}
-      />
-      {/* Yellow: 60–85% */}
-      <div
-        class="absolute inset-x-0 bg-meter-yellow"
-        style={{
-          bottom: `${GREEN_END}%`,
-          height: `${YELLOW_END - GREEN_END}%`,
-        }}
-      />
-      {/* Red: 85–100% */}
-      <div
-        class="absolute inset-x-0 top-0 bg-meter-red"
-        style={{ height: `${100 - YELLOW_END}%` }}
-      />
-    </>
   );
 }
 
@@ -162,9 +141,6 @@ type VolumeControlProps = {
 };
 
 export function VolumeControl(props: VolumeControlProps) {
-  const segments = SCALE_LABELS.length - 1;
-  const totalMinor = segments * (MINOR_TICKS_PER_SEGMENT + 1);
-
   const knobPct = createMemo(() => dbToSliderPct(props.volume));
 
   let trackRef!: HTMLDivElement;
@@ -227,7 +203,7 @@ export function VolumeControl(props: VolumeControlProps) {
       aria-valuetext={`${props.volume} dB`}
       aria-disabled={props.disabled ?? false}
       tabIndex={props.disabled ? -1 : 0}
-      class="soundboard-ticks relative w-3 h-full mr-3 flex flex-col justify-between items-end focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+      class="cut-fader group relative w-4 h-full mr-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       style={{ 'touch-action': 'none' }}
       classList={{ 'opacity-50 pointer-events-none': props.disabled }}
       onPointerDown={handlePointerDown}
@@ -242,28 +218,20 @@ export function VolumeControl(props: VolumeControlProps) {
           : props.volume + (['ArrowUp', 'ArrowRight', 'PageUp'].includes(event.key) ? step : -step));
       }}
     >
-      <For each={Array.from({ length: totalMinor + 1 }, (_, i) => i)}>
-        {(i) => {
-          const isMajor = i % (MINOR_TICKS_PER_SEGMENT + 1) === 0;
-
-          return (
-            <div
-              class="soundboard-tick h-px pointer-events-none"
-              classList={{
-                'bg-muted-foreground': isMajor,
-                'bg-muted-foreground/70': !isMajor,
-                'w-full': isMajor,
-                'w-1/2': !isMajor,
-              }}
-            />
-          );
-        }}
-      </For>
+      {/* The rail, with the stretch between unity and the thumb lit, so a
+          boost or a cut reads at a glance. */}
+      <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 rounded-full bg-input pointer-events-none" />
       <div
-        class="w-4.5 -translate-y-1/2 h-2 flex justify-center items-center absolute -left-0.75 bg-foreground rounded-xs pointer-events-none"
+        class="absolute left-1/2 -translate-x-1/2 w-0.5 rounded-full bg-primary/70 pointer-events-none"
+        style={{ top: `${Math.min(50, knobPct())}%`, bottom: `${100 - Math.max(50, knobPct())}%` }}
+      />
+      {/* Unity (0 dB) notch. */}
+      <div class="absolute left-0 w-1 top-1/2 h-px bg-muted-foreground/50 pointer-events-none" />
+      <div
+        class="cut-fader-thumb absolute left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-2.5 rounded-full bg-foreground shadow-[0_1px_4px_rgba(0,0,0,0.4)] pointer-events-none transition-transform group-hover:scale-110 group-active:scale-110"
         style={{ top: `${knobPct()}%` }}
       >
-        <div class="w-3 h-px bg-background" />
+        <div class="absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-background/60" />
       </div>
     </div>
   );
@@ -271,17 +239,16 @@ export function VolumeControl(props: VolumeControlProps) {
 
 export function MeterScale() {
   return (
-    <div class="soundboard-scale relative flex flex-col justify-between h-full ml-1">
-      <For each={SCALE_LABELS}>
-        {(label) => {
-          const needsPad = !label.startsWith('-');
-          return (
-            <span class="text-xxs leading-none font-mono text-muted-foreground">
-              {needsPad && <span class="invisible">-</span>}
-              {label}
-            </span>
-          );
-        }}
+    <div class="soundboard-scale relative h-full w-5 ml-1.5" aria-hidden="true">
+      <For each={SCALE_MARKS}>
+        {(db) => (
+          <span
+            class="soundboard-mark absolute left-0 -translate-y-1/2 text-xxs leading-none font-mono tabular-nums text-muted-foreground"
+            style={{ top: `${100 - dbToMeterPct(db)}%` }}
+          >
+            {db === 0 ? '0' : `−${-db}`}
+          </span>
+        )}
       </For>
     </div>
   );

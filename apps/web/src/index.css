@@ -295,40 +295,17 @@
 
 /**
  * The soundboard is as tall as the timeline the user drags, not as tall as the
- * viewport, so its scale thins itself out against its own box. Both columns are
- * laid out with justify-between, so hiding an element re-spreads the rest —
- * dropping a label and its major tick together keeps the two lined up.
- *
- * Heights below are the soundboard's content box; the meters themselves sit
- * 32px shorter than that (row gap + the layer picker underneath).
+ * viewport, so its scale thins itself against its own box. Marks sit at the
+ * level they name, so dropping one never moves the others.
  */
 .soundboard {
   container: soundboard / size;
 }
 
-/* Halve the minor ticks — the labels still have room at this height. */
 @container soundboard (max-height: 188px) {
-  .soundboard-tick:nth-child(even) {
-    display: none;
-  }
+  .soundboard-mark:nth-child(5) { display: none; }
 }
 
-/**
- * Halve the scale itself. Majors sit at 4n+1 of the 21 ticks, so keeping
- * 6n+1 plus the last one leaves major-minor-major-minor-major: three majors for
- * the three surviving labels, still with a minor between each pair.
- */
-@container soundboard (max-height: 167px) {
-  .soundboard-tick {
-    display: none;
-  }
-
-  .soundboard-tick:nth-child(6n + 1),
-  .soundboard-tick:nth-last-child(2) {
-    display: block;
-  }
-
-  .soundboard-scale > span:nth-child(even) {
-    display: none;
-  }
+@container soundboard (max-height: 150px) {
+  .soundboard-mark:nth-child(2), .soundboard-mark:nth-child(4) { display: none; }
 }
