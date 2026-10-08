@@ -31,4 +31,10 @@ Use `proposeCutSource` for structural JSX changes and review. `replaceCutSource`
 
 A project exports a Solid component returning `<stage><scene active width={1280} height={720} fill="#ffffff">…</scene></stage>`. Mark one scene active. Scenes have no duration: children have start/end in seconds. Text uses fontSize, fill, x and y. Local imported media lives in assets; use paths actually present. Only imports from solid-js and @diffusionstudio/jsx are supported. Source executes in the renderer; do not add network calls, storage access or unrelated code.
 
+### Masks and clip paths
+
+- `<rect clipPath>` inside a node clips that node to the rect's box. Several clip paths intersect. A clip path is never drawn, and it keeps its own transform and timing, so a keyframed clip path makes a wipe. The old spelling `<rect mask>` still works; write `clipPath`.
+- `<mask src="masks/<video>/Tracking 1.mask" />` inside an `<effect>` limits that effect to a tracked object. Under `<effect type="opacity" value={1}>` it is a cut-out: the clip shows only inside the mask. Under another effect, such as `blur`, the effect applies only inside the mask; `inverted` flips that. Other props: `sourceIn` (the clip's source time of the mask's first frame), `blur` (feather in px), `opacity` (strength 0–1), `smoothing` (0–1, default 0.25) and `hidden`.
+- Mask files come only from the user's **Object mask** tool (M). It tracks an object in a video clip on this computer, with a SAM 2.1 model the user downloads once. You cannot create or track masks. Use only `.mask` paths that already appear in the project, and never point a mask at another file type. To mask a new object, ask the user to use the tool.
+
 Use `checkCut({id})` to check a scene for composition issues; it is not a visual review. Call `exportCut({id})` only when requested, using a scene id from current JSX. Export does not prove recognition accuracy or the quality of speech cuts; review playback when judging those.

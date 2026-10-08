@@ -96,3 +96,44 @@ and validates the selected package before navigation.
 Verified in built Electron: overlay creation, local media import, agent source
 edit, MP4 export and reopening via `test:purecut:browser`. Shared generated-name
 handling is covered by the platform documentDisplay tests.
+
+## Object masks and clip paths
+
+Ported from upstream (see `docs/UPSTREAM_REVIEW_20261007.md`). A `<rect
+clipPath>` clips its parent to its box (`<rect mask>`, the old spelling, still
+reads). A `<mask src="masks/<video>/Tracking <n>.mask">` under an `<effect>`
+limits that effect to a tracked object; under `opacity` it is a cut-out. Mask
+files are project assets (`.mask`, the model's per-frame field plus the recipe
+that made it), written by the Object mask tool (M). Preview and export draw
+them through the same `MaskDecoder` and layer passes.
+
+The tool runs SAM 2.1 on this computer: `packages/sam2`, ONNX Runtime Web on
+WebGPU, with the runtime's WebAssembly bundled in `dist/`. This is on-device
+vision, not a language model, and the drawer agent cannot run it. The weights
+are not shipped. The first time a model is needed, the bar over the canvas
+names its size and source (Hugging Face, pinned revision, Apache-2.0) and
+fetches nothing until the person chooses **Download**. Files are kept in the
+app origin's private file system (`models/`), resume after an interrupted
+download, and are re-used offline. Without WebGPU, or without a connection
+before the first download, the bar says so and the rest of the editor is
+unaffected.
+
+| Model | Download | Input |
+| --- | --- | --- |
+| SAM 2.1 Tiny (default) | 83 MB | 512 px |
+| SAM 2.1 Small | 112 MB | 1024 px |
+| SAM 2.1 Base | 183 MB | 1024 px |
+| SAM 2.1 Large | 475 MB | 1024 px |
+
+Shell requirements: none beyond what `pure-app` already grants (standard,
+secure, fetch, CORS, stream). The app documents carry no CSP, so the
+`huggingface.co` and `*.hf.co` fetches are allowed; WebGPU is not gated by the
+iframe's `allow` list. App frames are not cross-origin isolated, so ONNX
+Runtime's WebAssembly fallback is single-threaded; the models run on WebGPU.
+
+Verified by `browser-object-mask-check` (in `test:purecut`): the mask file
+format, library and thumbnail, the compiler's `<mask>` and SVG handling,
+preview and decoded-export pixels for a moving mask, clip paths and the legacy
+spelling, the tool's commit with segmentation stubbed, locked clips, and that
+nothing is fetched before consent. Edit-core round trips are in
+`test:purecut:edit-core`.

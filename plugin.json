@@ -113,7 +113,7 @@
         },
         {
           "name": "proposeCutSource",
-          "description": "Propose edited project JSX for the user to review and apply. Read getCutContext first and use its baseHash. Does not save until the user applies the proposal. Preserve unrelated content and stable ids. Prefer this over direct replacement.",
+          "description": "Propose edited project JSX for the user to review and apply. Read getCutContext first and use its baseHash. Does not save until the user applies the proposal. Preserve unrelated content and stable ids. Prefer this over direct replacement. For clip paths and object masks see agents.md: reuse existing .mask files only; the user's Object mask tool makes them.",
           "inputSchema": {
             "type": "object",
             "properties": {

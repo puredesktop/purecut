@@ -614,11 +614,11 @@ export type EffectProps = Pick<CompositeProps, "hidden"> & {
  * the node fits its footage. Under an `"opacity"` effect it is the cut-out:
  * what is outside the mask goes transparent. What the editor's object mask
  * tool makes: it tracks an object through a video and writes the frames it
- * found as a directory of numbered images, which `src` names. Several under
+ * found as one `.mask` file, which `src` names. Several under
  * one effect intersect. Without a `src` a mask does nothing.
  */
 export type MaskProps = Pick<CompositeProps, "hidden"> & TrackChildren & {
-  /** The mask's frames: a directory of numbered images whose alpha is the mask. */
+  /** The mask's frames: a `.mask` file from the object mask tool, or a directory of numbered images whose alpha is the mask. */
   src?: string;
   /** The parent's source time the first frame belongs to, so the frames stay on the footage they were made from whatever the trim. Default 0. */
   sourceIn?: Time;

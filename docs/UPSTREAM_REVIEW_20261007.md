@@ -29,7 +29,16 @@ PureCut is adapted from [diffusionstudio/editor](https://github.com/diffusionstu
 | 1199553: export cancel confirmation | UI only. PureCut's export path already has its own cancel handling. | Only if the cancel experience needs redesign. |
 | f2a8258: caption preset colours | Changes how existing projects look. | A design decision. |
 | fc63b73: Google Fonts | Fetches fonts over the network, while PureCut ships bundled fonts (#24). | An offline and privacy policy for fonts. |
-| Object masks and clip paths (SAM 2.1; e63f1c7…cde1cc1, 6ce9321, 5c685e1, 22d32d9, 794c5d8) | A large feature with ONNX models and new JSX types. | Its own adoption project. |
+
+## Object masks and clip paths (feat/object-masks)
+
+Taken as a port on top of the fixes above, from 29 upstream commits (6c3901e … 5c685e1):
+
+- `packages/sam2`: SAM 2.1 video tracking on ONNX Runtime Web + WebGPU. Upstream's package, unchanged.
+- Runtime, assets, JSX: `<mask>` under `<effect>`, `.mask` files as MASK assets with thumbnails, masked effect passes in the renderer, and `<rect mask>` renamed `<rect clipPath>` (the old spelling still reads).
+- Editor: the Object mask tool (M) with its bar, the effects inspector's mask rows, the Clip path tool and its inspector section.
+
+PureCut adaptations: the model is downloaded only after the person agrees in the tool's bar, with its size and source shown; missing WebGPU and a failed download are said in the bar. Locked clips take no mask and no clip path. The toolbar keeps PureCut's bottom strip and no prompt input. The compiler keeps an SVG `<mask>` inside an html paint as SVG. Left out: the agent's `media_segment` tool and the `sam-2.1` generate jobs (67e783e, 8c5529e, e18ab84's dapi/CLI/desktop parts), with their toast styling. `segmentFootage`, which only those jobs call, stays in `tracking.ts` unused.
 
 ## Not relevant
 
