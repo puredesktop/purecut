@@ -23,6 +23,13 @@ try {
   }
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage();
+  // Remote caption-preset font hosts are blocked so the checks prove text
+  // still draws (in a fallback face) offline.
+  const blockedFontRequests = [];
+  await page.route(/^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com|diffusion-studio-public\.s3\.[^/]+\.amazonaws\.com)\//, route => {
+    blockedFontRequests.push(route.request().url());
+    return route.abort('internetdisconnected');
+  });
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.exposeFunction('inspectExportConfirmation', async () => {
     await mkdir('/tmp/purecut-visual', { recursive: true });
@@ -81,6 +88,8 @@ try {
       await (await import('/scripts/browser-subtitle-timeline-check.tsx')).checkTimelineSubtitles();
       await (await import('/scripts/browser-caption-render-check.ts')).checkCaptionRendering();
       await (await import('/scripts/browser-caption-render-check.ts')).checkCaptionRendering(true);
+      const captionColours = await (await import('/scripts/browser-caption-preset-colour-check.ts')).checkCaptionPresetColours();
+      globalThis.__captionColours = captionColours;
       await (await import('/scripts/browser-video-speed-check.ts')).checkVideoSpeedExport();
       await (await import('/scripts/browser-editing-check.ts')).checkEverydayEditing();
       await (await import('/scripts/browser-upstream-runtime-check.ts')).checkUpstreamRuntimeFixes();
@@ -461,6 +470,9 @@ try {
       ),
   );
   console.log(result);
+  if (!blockedFontRequests.some((url) => url.includes('the-bold-font')))
+    throw Error('The Spotlight preset font request never reached the blocked host; the offline caption check proved nothing');
+  console.log(`PASS: caption preset colours ${await page.evaluate(() => JSON.stringify(globalThis.__captionColours))} with ${blockedFontRequests.length} remote font request(s) blocked`);
 } finally {
   await browser?.close();
   server.kill("SIGTERM");

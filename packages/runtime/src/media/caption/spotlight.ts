@@ -19,7 +19,7 @@ import type { CaptionDecoder, CaptionPresetStyle } from './types';
 
 const WIDTH = 700;
 const HEIGHT = 100;
-const HIGHLIGHT_COLOR = 0x24D5FF;
+const HIGHLIGHT_COLOR = 0x19FF75;
 
 // The preset's base TextStyle; the document writes it and authored style
 // props overwrite it (see CAPTION_PRESET_STYLES).
