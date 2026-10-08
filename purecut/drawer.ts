@@ -27,14 +27,20 @@ export async function cutTool(name: string, args: any = {}) {
   if (["getCutTranscript", "proposeCutSpeechEdit", "proposeCutSpeechCleanup", "proposeCutCaptions", "openCutTranscript"].includes(name))
     return (await import("./speech/tools")).speechTool(name,args);
   await (await import("@/projects/edits")).flushPendingProjectEdits();
+  // Object tracking: the person tracks, on this computer; the agent only asks and reads the outcome.
+  if (name === "trackCutObject") return (await import("./track-object")).trackCutObject(args);
+  if (name === "getCutTrackStatus") return (await import("./track-object")).getCutTrackStatus();
   const context = await runTool("context");
-  if (name === "getCutContext")
+  if (name === "getCutContext") {
+    const pendingTrack = (await import("./track-object")).pendingTrackSummary();
     return {
       ...context,
       ...(context.projectDir
         ? await request("purecut:source", { dir: context.projectDir })
         : {}),
+      ...(pendingTrack ? { pendingTrack } : {}),
     };
+  }
   if (!context.projectDir) throw Error("Open a video first");
   if (name === "proposeCutEdits") {
     const { validateScopedEdits } = await import("./lib/scoped-edits");
@@ -93,7 +99,7 @@ if (window.parent !== window)
         content: JSON.stringify(await cutTool(shortName, args)),
       }));
       await registerAgentTools({
-        tools: ["getCutTranscript", "proposeCutSpeechEdit", "proposeCutSpeechCleanup", "proposeCutCaptions", "openCutTranscript", "getCutContext", "proposeCutEdits", "proposeCutSource", "replaceCutSource", "checkCut", "exportCut"],
+        tools: ["getCutTranscript", "proposeCutSpeechEdit", "proposeCutSpeechCleanup", "proposeCutCaptions", "openCutTranscript", "getCutContext", "proposeCutEdits", "proposeCutSource", "replaceCutSource", "checkCut", "exportCut", "trackCutObject", "getCutTrackStatus"],
       });
     })
     .catch(console.error);

@@ -17,6 +17,7 @@ import {
 	isObjectMaskModelAllowed, objectMaskModel, objectMaskModelLoad, objectMaskUse, setMaskRestore, setObjectHover, setObjectMaskModel,
 	setObjectMaskModelLoad, setObjectTrack,
 } from './store';
+import { cancelTrackRequest, pendingTrackRequest, settleTrackRequest, useLabel } from './request';
 
 import type { Entity, World } from 'koota';
 import type { InputVideoTrack } from 'mediabunny';
@@ -133,36 +134,56 @@ export function trackObjectMask(world: World): void {
 			},
 		});
 		if (signal.aborted) return;
-
-		track.status = 'saving';
-		const use = objectMaskUse();
-		const committed = await commitObjectMaskAs(world, track, use);
-		if (signal.aborted) return;
-
-		clearObjectTrack();
-		clearTargetEffect();
-		if (!committed) {
-			toast.error('Object mask failed', { description: 'The mask could not be saved.' });
-			return;
-		}
-		// PureCut: behind text with no text above the clip keeps the mask for later.
-		if (committed.masks.length === 0) {
-			toast('Mask saved, no text to put behind it', {
-				description: 'Add a text above the clip, then choose Behind subject in its inspector.',
-			});
-		}
-		const texts = use === 'behind' ? committed.masks.map((mask) => getParentNode(getParentNode(mask))).filter((node): node is Entity => !!node) : [];
-		if (texts.length > 0) getDocumentEditor(world).select(texts);
-		else if (track.clip.isAlive()) getDocumentEditor(world).select(track.clip);
-		if (world.get(Tool)?.value === ToolType.OBJECT_MASK) world.set(Tool, { value: ToolType.MOVE });
+		await finishTrackedObject(world, track);
 	});
 }
 
 /**
+ * The tracked frames of `track` into the document, put to the use picked in
+ * the bar, and the session spent (see `trackObjectMask`, whose last step this
+ * is; the browser checks call it with hand-made frames). An assistant's
+ * request on the clip ends with what came of it (PureCut).
+ */
+export async function finishTrackedObject(world: World, track: ObjectTrack): Promise<void> {
+	const { signal } = track.controller;
+	track.status = 'saving';
+	const use = objectMaskUse();
+	const committed = await commitObjectMaskAs(world, track, use);
+	if (signal.aborted) return;
+
+	clearObjectTrack();
+	clearTargetEffect();
+	const asked = pendingTrackRequest(world)?.clip === track.clip;
+	if (!committed) {
+		toast.error('Object mask failed', { description: 'The mask could not be saved.' });
+		if (asked) settleTrackRequest('failed', 'The object was tracked but its mask could not be saved (the clip may have been locked or removed). The project is unchanged.', null, world);
+		return;
+	}
+	if (asked) {
+		settleTrackRequest('done', committed.masks.length === 0
+			? `The person tracked the object and the mask was saved as ${committed.asset.path}, but there was no text above the clip to put behind it, so nothing else changed.`
+			: `The person tracked the object. The mask is ${committed.asset.path}, applied as ${useLabel(use)}.`,
+		{ mask: committed.asset.path, use, applied: committed.masks.length }, world);
+	}
+	// PureCut: behind text with no text above the clip keeps the mask for later.
+	if (committed.masks.length === 0) {
+		toast('Mask saved, no text to put behind it', {
+			description: 'Add a text above the clip, then choose Behind subject in its inspector.',
+		});
+	}
+	const texts = use === 'behind' ? committed.masks.map((mask) => getParentNode(getParentNode(mask))).filter((node): node is Entity => !!node) : [];
+	if (texts.length > 0) getDocumentEditor(world).select(texts);
+	else if (track.clip.isAlive()) getDocumentEditor(world).select(track.clip);
+	if (world.get(Tool)?.value === ToolType.OBJECT_MASK) world.set(Tool, { value: ToolType.MOVE });
+}
+
+/**
  * Puts the tool down without a mask: whatever the session was computing
- * stops, its prompt is dropped, and the Move tool takes over.
+ * stops, its prompt is dropped, and the Move tool takes over. An assistant's
+ * request ends as cancelled (PureCut).
  */
 export function cancelObjectMask(world: World): void {
+	cancelTrackRequest(world);
 	clearObjectTrack();
 	clearTargetEffect();
 
@@ -485,6 +506,10 @@ async function loadModel(id: Sam2ModelId, onDownload?: (progress: number | null)
 			setObjectMaskModelLoad(blocker instanceof ModelNotDownloadedError
 				? { id, phase: 'needs-download', progress: null, error: null }
 				: { id, phase: 'error', progress: null, error: blocker.message });
+		}
+		// No WebGPU is for good: an assistant's request cannot be met on this computer.
+		if (!(blocker instanceof ModelNotDownloadedError)) {
+			settleTrackRequest('unavailable', 'Object tracking needs WebGPU, which this PureCut window does not offer, so nothing was tracked and the project is unchanged. The person cannot track objects on this computer.');
 		}
 		throw blocker;
 	}

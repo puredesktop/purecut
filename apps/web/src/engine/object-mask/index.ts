@@ -12,3 +12,4 @@ export * from './interaction';
 export * from './brush';
 export * from './overlay';
 export * from './uses';
+export * from './request';

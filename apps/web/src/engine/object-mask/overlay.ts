@@ -14,6 +14,7 @@ import { handleObjectMaskInteraction, heldObjectMaskLabel } from './interaction'
 import { currentSourceFrame, getVideoRect, pointOnVideo, videoPointAt, videoPointToDevice } from './media';
 import { clearTargetEffect, getObjectHover, getObjectMask, getObjectTrack, getTargetClip } from './store';
 import { clearObjectHover, hoverObjectMask } from './tracking';
+import { pendingTrackRequest, settleTrackRequestOnToolDown, trackRequestClip } from './request';
 
 import type { Entity, World } from 'koota';
 import type { MaskFrame } from '@diffusionstudio/assets';
@@ -33,6 +34,9 @@ const OUTLINE_HALO = 3.5;
 const OUTLINE_ALPHA = 1;
 const HOVER_OUTLINE_ALPHA = 0.6;
 const POINT_RADIUS = 5;
+/** An assistant's suggested point: a ring larger than a placed point, so the two never read alike. */
+const SUGGESTED_RADIUS = 11;
+const SUGGESTED_FONT = 'Outfit, Inter, system-ui, sans-serif';
 /** How far the pointer moves, in 0..1 of the frame, before a new segment is asked for. */
 const HOVER_STEP = 0.004;
 
@@ -52,6 +56,8 @@ let lastHover: { frame: number; x: number; y: number; label: 0 | 1 } | null = nu
  */
 export function drawObjectMasks(world: World, ctx: Ctx2D, resolution: number): void {
 	if (world.get(Tool)?.value !== ToolType.OBJECT_MASK) {
+		// PureCut: another tool picked with an assistant's request open declines it.
+		settleTrackRequestOnToolDown(world);
 		if (active) {
 			active = false;
 			lastHover = null;
@@ -80,6 +86,8 @@ export function drawObjectMasks(world: World, ctx: Ctx2D, resolution: number): v
 			if (frame === track.seedFrame) drawPoints(ctx, rect, track.points, resolution);
 		}
 	}
+
+	drawSuggestedPoint(world, ctx, track, resolution);
 
 	const hover = getObjectHover();
 	if (hover && hover.clip.isAlive()) {
@@ -132,7 +140,8 @@ function updateHover(world: World, target: { clip: Entity; rect: VideoRect } | n
  * there is no video to work on.
  */
 function toolTarget(world: World): { clip: Entity; rect: VideoRect } | null {
-	const clip = getTargetClip() ?? videoUnderPointer(world);
+	// PureCut: an assistant's request aims the tool at its clip, as an effect's mask does.
+	const clip = getTargetClip() ?? trackRequestClip(world) ?? videoUnderPointer(world);
 	// PureCut: a locked clip takes no mask, so it offers no prompt either.
 	if (!clip || !clip.isAlive() || clip.has(Culled) || clip.has(Hidden) || isEditLocked(clip)) return null;
 	const rect = getVideoRect(world, clip);
@@ -220,6 +229,60 @@ function drawBrush(world: World, ctx: Ctx2D, target: { clip: Entity; rect: Video
 	ctx.restore();
 
 	return true;
+}
+
+/**
+ * The point an assistant's request suggests (PureCut), until the person
+ * prompts the clip themselves: a hollow dashed ring with a "Suggested" tag,
+ * plainly not one of the person's own filled points, which it becomes once
+ * they take it.
+ */
+function drawSuggestedPoint(world: World, ctx: Ctx2D, track: ReturnType<typeof getObjectTrack>, resolution: number): void {
+	const request = pendingTrackRequest(world);
+	if (!request?.point || !request.clip.isAlive() || track?.clip === request.clip) return;
+	if (request.clip.has(Culled) || request.clip.has(Hidden)) return;
+	const rect = getVideoRect(world, request.clip);
+	if (!rect) return;
+
+	const { x, y } = videoPointToDevice(rect, request.point);
+	const r = SUGGESTED_RADIUS * resolution;
+	ctx.save();
+	ctx.resetTransform();
+	ctx.beginPath();
+	ctx.arc(x, y, r, 0, Math.PI * 2);
+	ctx.lineWidth = 4 * resolution;
+	ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+	ctx.stroke();
+	ctx.setLineDash([4 * resolution, 3 * resolution]);
+	ctx.lineWidth = 2 * resolution;
+	ctx.strokeStyle = '#FFFFFF';
+	ctx.stroke();
+	ctx.setLineDash([]);
+	ctx.beginPath();
+	ctx.arc(x, y, 2.5 * resolution, 0, Math.PI * 2);
+	ctx.fillStyle = ACCENT;
+	ctx.fill();
+	ctx.lineWidth = 1 * resolution;
+	ctx.strokeStyle = '#FFFFFF';
+	ctx.stroke();
+
+	// The tag, a dark pill to the ring's right: readable on any footage.
+	const label = 'Suggested';
+	ctx.font = `500 ${11 * resolution}px ${SUGGESTED_FONT}`;
+	const padX = 7 * resolution;
+	const height = 20 * resolution;
+	const width = ctx.measureText(label).width + padX * 2;
+	const left = x + r + 6 * resolution;
+	const top = y - height / 2;
+	ctx.beginPath();
+	ctx.roundRect(left, top, width, height, height / 2);
+	ctx.fillStyle = 'rgba(15, 20, 30, 0.78)';
+	ctx.fill();
+	ctx.fillStyle = '#FFFFFF';
+	ctx.textAlign = 'left';
+	ctx.textBaseline = 'middle';
+	ctx.fillText(label, left + padX, y + 0.5 * resolution);
+	ctx.restore();
 }
 
 function drawPoints(ctx: Ctx2D, rect: VideoRect, points: MaskPoint[], resolution: number): void {

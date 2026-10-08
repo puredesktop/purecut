@@ -255,6 +255,74 @@
   white-space: normal;
 }
 #cut-editor .cut-tool-bar-note.text-destructive { color: var(--destructive); }
+/* The object mask bar sits in a dock, so an assistant's request can stand
+   above it. The dock spans the stage and lets clicks through to the video. */
+#cut-editor .cut-tool-dock {
+  bottom: 52px;
+  width: calc(100% - 32px);
+  pointer-events: none;
+}
+#cut-editor .cut-tool-dock > * { pointer-events: auto; }
+#cut-editor .cut-tool-dock .cut-tool-bar { max-width: 100%; }
+
+/* An assistant's request to track an object: a note on the bar's paper, set
+   like a letter rather than an alert. A round mark says who is asking; the
+   sentence says what for, in the person's words where the assistant gave
+   them; the hint under it says what to do next. */
+#cut-editor .cut-track-ask {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(600px, 100%);
+  padding: 10px 12px 10px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-line, var(--pure-chrome-hairline));
+  background: var(--pure-chrome-paper);
+  box-shadow: 0 10px 30px rgba(16, 22, 42, 0.18);
+  color: var(--foreground);
+}
+#cut-editor .cut-track-ask-mark {
+  display: inline-flex;
+  flex: none;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+#cut-editor .cut-track-ask-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#cut-editor .cut-track-ask-eyebrow {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+#cut-editor .cut-track-ask-title {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+#cut-editor .cut-track-ask-title strong { font-weight: 600; }
+#cut-editor .cut-track-ask-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+  text-wrap: pretty;
+}
+#cut-editor .cut-track-ask-action { flex: none; border-radius: 6px; }
+@media (max-width: 720px) {
+  #cut-editor .cut-track-ask { flex-wrap: wrap; }
+  #cut-editor .cut-track-ask-text { flex: 1 1 220px; }
+  #cut-editor .cut-track-ask-action { margin-left: 40px; }
+}
 /* The bar's menus open in a portal, outside #cut-editor: the same paper, so
    the stage does not show through dark glass. */
 :root[data-app="cut"] .cut-tool-bar-menu {

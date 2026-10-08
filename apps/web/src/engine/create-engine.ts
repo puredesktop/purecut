@@ -8,7 +8,7 @@ import { createSignal, type Accessor, type Setter } from 'solid-js';
 import { AssetSelection, Hud, Keys, MODIFIER_KEYS, ObjectMaskTool, Pointer, PointerEvents, ProjectConfig, SnapLines } from './traits';
 import { inputSystem } from './input/input-system';
 import { clearClipFrames, clearClipPeaks, clearMedia, clearPeaks, timelineSystem, TimelineSurface } from './timeline';
-import { clearObjectTrackOf, clearObjectTracks } from './object-mask';
+import { clearObjectTrackOf, clearObjectTracks, settleTrackRequestOf, settleTrackRequestOnClose } from './object-mask';
 import { shortcutSystem } from './input/shortcuts';
 import { ownsKeyboardEvent } from './input/keyboard-target';
 import { Playback, stopPlayback } from '@diffusionstudio/runtime';
@@ -65,6 +65,7 @@ class Engine {
 				clearClipPeaks(entity.id());
 				clearClipFrames(entity.id());
 				clearObjectTrackOf(entity);
+				settleTrackRequestOf(entity);
 			}),
 		);
 
@@ -305,6 +306,8 @@ class Engine {
 		clearPeaks();
 		clearMedia();
 		clearObjectTracks();
+		// PureCut: an assistant's tracking request ends with the project it was for.
+		settleTrackRequestOnClose(this.world);
 
 		this.unsubscribeEventListeners();
 		this.unsubscribe.forEach(unsubscribe => unsubscribe());
