@@ -83,6 +83,7 @@ try {
       await (await import('/scripts/browser-caption-render-check.ts')).checkCaptionRendering(true);
       await (await import('/scripts/browser-video-speed-check.ts')).checkVideoSpeedExport();
       await (await import('/scripts/browser-editing-check.ts')).checkEverydayEditing();
+      await (await import('/scripts/browser-upstream-runtime-check.ts')).checkUpstreamRuntimeFixes();
       const reviewVideo = await (await import('/scripts/browser-timeline-check.ts')).checkTimeline();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport(true);
