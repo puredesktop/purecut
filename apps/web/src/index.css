@@ -69,6 +69,7 @@
   --color-primary-hover: var(--primary-hover);
   --color-primary-pressing: var(--primary-pressing);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-hover: var(--destructive-hover);
   --color-destructive-pressing: var(--destructive-pressing);
   --color-destructive-accent: var(--destructive-accent);

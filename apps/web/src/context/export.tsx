@@ -14,8 +14,8 @@ import { useEngineContext } from "@/engine";
 import { useProject } from "@/context/project";
 import { ElectronWritableFileHandle } from "@/lib/electron-file-writable";
 import { track } from "@/lib/analytics";
-import { ExportProgress } from "@/components/sidebar-right/inspector/export-progress";
-import { renderScene, renderOverlay, cancelRender, type ExportConfig } from "@/context/render";
+import { RenderProgress } from "@/components/sidebar-right/inspector/export-progress";
+import { renderScene, renderOverlay, type ExportConfig } from "@/context/render";
 import { recordSuccessfulExport } from '@/lib/export-history';
 import {
   MIME_TYPES,
@@ -205,13 +205,7 @@ export function ExportProvider(props: { children: JSX.Element }) {
   return (
     <ExportContext.Provider value={{ exportScene, exportCurrentFrame, exporting }}>
       {props.children}
-      <ExportProgress
-        open={!!renderOverlay()}
-        audioOnly={renderOverlay()?.audioOnly ?? false}
-        progress={renderOverlay()?.progress ?? 0}
-        remaining={renderOverlay()?.remaining}
-        onCancel={cancelRender}
-      />
+      <RenderProgress />
     </ExportContext.Provider>
   );
 }

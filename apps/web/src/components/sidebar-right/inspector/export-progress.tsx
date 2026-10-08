@@ -14,6 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { renderOverlay, cancelRender } from "@/context/render";
 
 type ExportProgressProps = {
   open: boolean;
@@ -27,6 +28,7 @@ export function ExportProgress(props: ExportProgressProps) {
   const [confirming, setConfirming] = createSignal(false);
   const open = createMemo(() => props.open);
   createEffect(on(open, () => setConfirming(false)));
+  let keepExporting: HTMLButtonElement | undefined;
 
   const confirmCancel = () => {
     setConfirming(false);
@@ -35,7 +37,7 @@ export function ExportProgress(props: ExportProgressProps) {
 
   const remaining = () => {
     const r = props.remaining;
-    if (!r) return;
+    if (!r) return "Preparing…";
     return r.minutes > 0
       ? `~${r.minutes}m ${r.seconds}s remaining`
       : `~${r.seconds}s remaining`;
@@ -44,35 +46,42 @@ export function ExportProgress(props: ExportProgressProps) {
   return (
     <Show when={props.open}>
       <Portal>
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-background">
+        <div
+          class="cut-export-progress fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Export progress"
+        >
           <div class="flex w-full max-w-md flex-col items-center px-6">
-            <h4 class="text-[14px] mb-2">
+            <p class="cut-export-progress-label">{props.audioOnly ? "Audio export" : "Video export"}</p>
+            <h4 class="text-[14px] mt-2">
               {props.audioOnly ? "Exporting audio..." : "Exporting video..."}
             </h4>
 
             <div
               role="progressbar"
+              aria-label={props.audioOnly ? "Audio export progress" : "Video export progress"}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={props.progress}
-              class="mt-8 h-1.5 w-full overflow-hidden rounded-full bg-foreground/10"
+              class="cut-export-progress-track mt-8 h-1.5 w-full overflow-hidden rounded-full"
             >
               <div
                 class="h-full rounded-full bg-primary transition-all"
                 style={{ width: `${props.progress}%` }}
               />
             </div>
-            <div class="mt-3 flex w-full justify-between text-xs tabular-nums">
-              <span class="text-muted-foreground">{remaining()}</span>
+            <div class="cut-export-progress-meta mt-3 flex w-full justify-between">
+              <span>{remaining()}</span>
               <span>{props.progress}%</span>
             </div>
 
             <Button
-              variant="secondary"
+              variant="outline"
               class="mt-8 px-3"
               onClick={() => setConfirming(true)}
             >
-              Cancel Export
+              Cancel export
             </Button>
           </div>
         </div>
@@ -80,16 +89,23 @@ export function ExportProgress(props: ExportProgressProps) {
 
       <AlertDialog open={confirming()} onOpenChange={setConfirming}>
         <AlertDialogPortal>
-          <AlertDialogContent>
+          <AlertDialogContent
+            class="cut-export-confirmation cut-export-cancel"
+            onOpenAutoFocus={(event: Event) => {
+              // The safe choice takes focus: Enter or Space keeps the export going.
+              event.preventDefault();
+              keepExporting?.focus();
+            }}
+          >
             <AlertDialogHeader>
-              <AlertDialogTitle>Stop exporting?</AlertDialogTitle>
-              <AlertDialogDescription>
+              <AlertDialogTitle class="text-[14px] font-medium">Stop exporting?</AlertDialogTitle>
+              <AlertDialogDescription class="text-[12px] leading-normal">
                 The export is still in progress. You'll need to start over if you stop now.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <Button variant="secondary" onClick={() => setConfirming(false)}>
-                Continue
+              <Button ref={keepExporting} variant="outline" onClick={() => setConfirming(false)}>
+                Keep exporting
               </Button>
               <Button variant="destructive" onClick={confirmCancel}>
                 Stop export
@@ -99,5 +115,22 @@ export function ExportProgress(props: ExportProgressProps) {
         </AlertDialogPortal>
       </AlertDialog>
     </Show>
+  );
+}
+
+/**
+ * The overlay bound to the one render slot in `context/render`: shown while
+ * any render (UI export or the agent's export tool) is in flight, and its
+ * confirmed cancel stops that render.
+ */
+export function RenderProgress() {
+  return (
+    <ExportProgress
+      open={!!renderOverlay()}
+      audioOnly={renderOverlay()?.audioOnly ?? false}
+      progress={renderOverlay()?.progress ?? 0}
+      remaining={renderOverlay()?.remaining}
+      onCancel={cancelRender}
+    />
   );
 }
