@@ -5,7 +5,9 @@
 import { DEFAULT_MASK_SMOOTHING, MASK_FIELD_MAX, MaskFile, traceMask } from '@diffusionstudio/assets';
 
 import { getAssetFile } from '../actions/assets';
+import { Geometry, Mask, Source } from '../traits';
 
+import type { Entity, World } from 'koota';
 import type { AssetStat, MaskAsset } from '@diffusionstudio/assets';
 
 /** White where the object is: a mask is read by its alpha. */
@@ -142,4 +144,41 @@ export class MaskDecoder {
 		this.canvas.width = 0;
 		this.canvas.height = 0;
 	}
+}
+
+// ── Masks that follow another clip ───────────────────────────
+
+/** The last clip each following mask resolved to, by the mask's id: checked, not trusted, on every use. */
+const followed = new Map<number, { id: string; target: Entity }>();
+
+/** The authored id of an element: what its source stamp says after the file. */
+function authoredId(entity: Entity): string | undefined {
+	const source = entity.get(Source)?.value;
+	if (!source) return undefined;
+	const at = source.lastIndexOf(':');
+	return at < 0 ? undefined : source.slice(at + 1);
+}
+
+/**
+ * The clip a `<mask follow>` is placed on and timed by: the element whose
+ * authored id its `follow` names. `undefined` for a mask of its own node (no
+ * `follow`), and null while the id names nothing, or names the mask's own
+ * node's ancestors' chain back to itself (a mask cannot follow itself).
+ */
+export function resolveMaskFollow(world: World, mask: Entity): Entity | null | undefined {
+	const id = mask.get(Mask)?.follow;
+	if (!id) return undefined;
+
+	const cached = followed.get(mask.id());
+	if (cached && cached.id === id && cached.target.isAlive() && authoredId(cached.target) === id && cached.target.has(Geometry)) {
+		return cached.target;
+	}
+
+	for (const entity of world.query(Source, Geometry)) {
+		if (authoredId(entity) !== id) continue;
+		followed.set(mask.id(), { id, target: entity });
+		return entity;
+	}
+	followed.delete(mask.id());
+	return null;
 }

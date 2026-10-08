@@ -37,7 +37,7 @@ import { drawOnto, getSurfaceContext } from '../utils/surface';
 import { findGeometryAssetSource, getIntrinsicPaint } from '../utils/time';
 import { createLinearGradient, createRadialGradient } from './gradients';
 import {
-	MaskDecoder, resolveImageDecoder, resolveVideoDecoder,
+	MaskDecoder, resolveImageDecoder, resolveVideoDecoder, resolveMaskFollow,
 	resolveCaptionDecoder, resolveShaderHost, resolveWaveformPeaks,
 } from '../media';
 
@@ -133,8 +133,23 @@ export function getScaledImageProps(
 
 const EPSILON = 1e-4;
 
-/** Build a single CSS filter fragment from an effect sub-entity. Returns null if hidden or no-op. */
-function effectFilter(world: World, sub: Entity): string | null {
+/**
+ * How many device pixels one unit of the context's space spans: what a
+ * length in the node's own px becomes on the surface. A canvas filter's
+ * lengths are not transformed (they are device px), so a blur measured in
+ * the node's px is multiplied by this — the same blur at any preview zoom,
+ * display density or export resolution.
+ */
+function deviceScale(transform: DOMMatrix): number {
+	return Math.sqrt(Math.abs(transform.a * transform.d - transform.b * transform.c)) || 1;
+}
+
+/**
+ * Build a single CSS filter fragment from an effect sub-entity. Returns null
+ * if hidden or no-op, and for a pixelation, which is not a CSS filter (see
+ * `pixelateSize`). `scale` is the node's device scale (see `deviceScale`).
+ */
+function effectFilter(world: World, sub: Entity, scale = 1): string | null {
 	if (sub.has(Hidden)) return null;
 
 	const value = store(world, Computed).value[sub.id()]!;
@@ -142,7 +157,7 @@ function effectFilter(world: World, sub: Entity): string | null {
 
 	if (type === EffectType.LAYER_BLUR) {
 		const clamped = Math.max(0, value);
-		return clamped > EPSILON ? `blur(${clamped}px)` : null;
+		return clamped > EPSILON ? `blur(${clamped * scale}px)` : null;
 	}
 	if (type === EffectType.BRIGHTNESS) {
 		const clamped = Math.min(1, Math.max(0, value));
@@ -178,18 +193,30 @@ function effectFilter(world: World, sub: Entity): string | null {
 	return null;
 }
 
+/**
+ * A pixelation's block size, in px of the node, or 0 when the effect is not
+ * a pixelation or is off (hidden, or blocks of a pixel or less).
+ */
+function pixelateSize(world: World, sub: Entity): number {
+	if (sub.has(Hidden) || store(world, Effect).type[sub.id()] !== EffectType.PIXELATE) return 0;
+	const size = store(world, Computed).value[sub.id()] ?? 0;
+	return size > 1 ? size : 0;
+}
+
 /** CSS filter string from the entity's own blur plus effect sub-entities. */
 function buildEffects(world: World, entity: Entity): string | null {
 	const parts: string[] = [];
-
+	const effects = store(world, Cache).effects[entity.id()] ?? [];
 	const blurVal = store(world, Computed).blur[entity.id()]!;
+	if (effects.length === 0 && !(blurVal > EPSILON)) return null;
+
+	const scale = deviceScale(getCtx(world).getTransform());
 	if (blurVal > EPSILON) {
-		parts.push(`blur(${blurVal}px)`);
+		parts.push(`blur(${blurVal * scale}px)`);
 	}
 
-	const effects = store(world, Cache).effects[entity.id()] ?? [];
 	for (const effect of effects) {
-		const f = effectFilter(world, effect);
+		const f = effectFilter(world, effect, scale);
 		if (f) parts.push(f);
 	}
 
@@ -804,7 +831,7 @@ export function renderNode(world: World, entity: Entity): void {
 		clipTo(world, clipPath);
 	}
 
-	// An effect limited by a `<mask>` takes the node through layers.
+	// An effect limited by a `<mask>`, or a pixelation, takes the node through layers.
 	const passes = effectPasses(world, entity);
 
 	// Opacity and blend mode. The store slot may hold a destroyed entity's
@@ -896,21 +923,27 @@ function renderContent(world: World, entity: Entity, effects: string | null): vo
 
 // ── Effect passes ────────────────────────────────────────────
 
-/** One step of a node's filter pipeline: a run of plain filters, or one effect limited by its masks. */
+/**
+ * One step of a node's filter pipeline: a run of plain filters, a
+ * pixelation, or one effect limited by its masks (a filter, or a
+ * pixelation when `pixelate` is a block size).
+ */
 type EffectPass =
 	| { kind: 'filter'; filter: string }
-	| { kind: 'masked'; filter: string | null; masks: Entity[]; opacity: boolean };
+	| { kind: 'pixelate'; size: number }
+	| { kind: 'masked'; filter: string | null; pixelate: number; masks: Entity[]; opacity: boolean };
 
 /**
- * The node's effects as passes, or null when none is masked and one CSS
- * filter string (see `buildEffects`) does the whole job in a single draw.
- * The node's own blur leads, and consecutive unmasked effects fold into one
- * filter run, so a node pays a layer per masked effect and nothing more.
+ * The node's effects as passes, or null when none is masked or a
+ * pixelation, and one CSS filter string (see `buildEffects`) does the whole
+ * job in a single draw. The node's own blur leads, and consecutive unmasked
+ * filters fold into one filter run, so a node pays a layer per masked
+ * effect or pixelation and nothing more.
  */
 function effectPasses(world: World, entity: Entity): EffectPass[] | null {
 	const effects = store(world, Cache).effects[entity.id()];
 	if (!effects?.length) return null;
-	if (!effects.some((effect) => !effect.has(Hidden) && activeMasks(world, effect).length > 0)) return null;
+	if (!effects.some((effect) => !effect.has(Hidden) && (activeMasks(world, effect).length > 0 || pixelateSize(world, effect) > 0))) return null;
 
 	const passes: EffectPass[] = [];
 	let run: string[] = [];
@@ -919,20 +952,26 @@ function effectPasses(world: World, entity: Entity): EffectPass[] | null {
 		run = [];
 	};
 
+	const scale = deviceScale(getCtx(world).getTransform());
 	const blur = store(world, Computed).blur[entity.id()]!;
-	if (blur > EPSILON) run.push(`blur(${blur}px)`);
+	if (blur > EPSILON) run.push(`blur(${blur * scale}px)`);
 
 	const types = store(world, Effect).type;
 	for (const effect of effects) {
 		if (effect.has(Hidden)) continue;
-		const filter = effectFilter(world, effect);
+		const filter = effectFilter(world, effect, scale);
+		const pixelate = pixelateSize(world, effect);
 		const masks = activeMasks(world, effect);
 		if (masks.length === 0) {
 			if (filter) run.push(filter);
+			if (pixelate > 0) {
+				flush();
+				passes.push({ kind: 'pixelate', size: pixelate });
+			}
 			continue;
 		}
 		flush();
-		passes.push({ kind: 'masked', filter, masks, opacity: types[effect.id()] === EffectType.OPACITY });
+		passes.push({ kind: 'masked', filter, pixelate, masks, opacity: types[effect.id()] === EffectType.OPACITY });
 	}
 	flush();
 	return passes;
@@ -1024,6 +1063,10 @@ function renderLayered(world: World, entity: Entity, passes: EffectPass[]): void
 			if (pass.kind === 'filter') {
 				resetLayer(back, IDENTITY);
 				blit(back, front.canvas, 'source-over', pass.filter);
+			} else if (pass.kind === 'pixelate') {
+				resetLayer(back, IDENTITY);
+				blit(back, front.canvas);
+				pixelate(world, entity, back, front.canvas, pass.size, local);
 			} else {
 				applyMaskedEffect(world, entity, pass, front, back, local);
 			}
@@ -1052,12 +1095,23 @@ function applyMaskedEffect(world: World, entity: Entity, pass: Extract<EffectPas
 	const coverage = acquireLayer(width, height);
 	const scratch = acquireLayer(width, height);
 	const opacities = store(world, Computed).opacity;
+	// Masks that follow another clip measure against the whole surface, not
+	// the node's box: a text's glyphs may reach past its box, and the
+	// subject is wherever the clip puts it.
+	const whole = pass.masks.every((mask) => isFollowing(world, entity, mask));
 
 	try {
 		resetLayer(coverage, local);
-		drawOnto(coverage.ctx, () => drawRectPath(world, entity));
 		coverage.ctx.fillStyle = '#000000';
-		coverage.ctx.fill();
+		if (whole) {
+			coverage.ctx.save();
+			coverage.ctx.setTransform(1, 0, 0, 1, 0, 0);
+			coverage.ctx.fillRect(0, 0, width, height);
+			coverage.ctx.restore();
+		} else {
+			drawOnto(coverage.ctx, () => drawRectPath(world, entity));
+			coverage.ctx.fill();
+		}
 		for (const mask of pass.masks) {
 			const strength = Math.min(1, Math.max(0, opacities[mask.id()] ?? 1));
 			if (strength <= EPSILON || !drawMaskRemoval(world, entity, mask, scratch, local)) continue;
@@ -1066,6 +1120,7 @@ function applyMaskedEffect(world: World, entity: Entity, pass: Extract<EffectPas
 
 		resetLayer(back, IDENTITY);
 		blit(back, front.canvas, 'source-over', pass.filter ?? 'none');
+		if (pass.pixelate > 0) pixelate(world, entity, back, front.canvas, pass.pixelate, local);
 		blit(back, coverage.canvas, 'destination-in');
 
 		if (!pass.opacity) {
@@ -1087,10 +1142,20 @@ function applyMaskedEffect(world: World, entity: Entity, pass: Extract<EffectPas
  */
 function drawMaskRemoval(world: World, entity: Entity, mask: Entity, layer: Layer, local: DOMMatrix): boolean {
 	const computed = store(world, Computed);
-	const eid = entity.id();
 	const mid = mask.id();
-	const w = computed.width[eid]!;
-	const h = computed.height[eid]!;
+
+	// A mask following another clip lands in that clip's box, where the clip
+	// puts its footage, and only while the clip plays.
+	const follow = resolveMaskFollow(world, mask);
+	if (follow === null) return false;
+	const target = follow ?? entity;
+	const following = target !== entity;
+	if (following && computed.visibility[target.id()] !== 1) return false;
+	const placement = following ? relativeTransform(world, entity, target, local) : local;
+
+	const tid = target.id();
+	const w = computed.width[tid]!;
+	const h = computed.height[tid]!;
 
 	const decoder = resolveVideoDecoder(world, mask);
 	const smoothing = store(world, Mask).smoothing[mid] ?? DEFAULT_MASK_SMOOTHING;
@@ -1101,21 +1166,35 @@ function drawMaskRemoval(world: World, entity: Entity, mask: Entity, layer: Laye
 
 	const feather = computed.blur[mid] ?? 0;
 	const inverted = store(world, Mask).inverted[mid] ?? false;
-	const source = findGeometryAssetSource(world, entity);
+	const source = findGeometryAssetSource(world, target);
 	const mode = (source && store(world, ScaleMode).value[source.id()]) ?? ScaleModeType.COVER;
 	const [dx, dy, sw, sh] = getScaledImageProps(mode, picture.width, picture.height, w, h);
 
 	const { ctx } = layer;
 	resetLayer(layer, local);
 	ctx.save();
-	drawOnto(ctx, () => drawRectPath(world, entity));
-	if (!inverted) {
-		ctx.fillStyle = '#000000';
-		ctx.fill();
+	if (following) {
+		// The node's region is the whole surface (see `applyMaskedEffect`);
+		// the subject only shows inside the clip's box.
+		if (!inverted) {
+			ctx.save();
+			ctx.setTransform(1, 0, 0, 1, 0, 0);
+			ctx.fillStyle = '#000000';
+			ctx.fillRect(0, 0, layer.canvas.width, layer.canvas.height);
+			ctx.restore();
+		}
+		ctx.setTransform(placement);
+		drawOnto(ctx, () => drawRectPath(world, target));
+	} else {
+		drawOnto(ctx, () => drawRectPath(world, entity));
+		if (!inverted) {
+			ctx.fillStyle = '#000000';
+			ctx.fill();
+		}
 	}
 	ctx.clip();
 	ctx.globalCompositeOperation = inverted ? 'source-over' : 'destination-out';
-	if (feather > EPSILON) ctx.filter = `blur(${feather}px)`;
+	if (feather > EPSILON) ctx.filter = `blur(${feather * deviceScale(placement)}px)`;
 	if (outline) {
 		// The path is placed in the box rather than the context scaled, so the
 		// feather's blur is measured as it is for any other picture.
@@ -1129,6 +1208,83 @@ function drawMaskRemoval(world: World, entity: Entity, mask: Entity, layer: Laye
 	}
 	ctx.restore();
 	return true;
+}
+
+/** Whether `mask` follows a clip other than `entity` (see `resolveMaskFollow`). */
+function isFollowing(world: World, entity: Entity, mask: Entity): boolean {
+	const follow = resolveMaskFollow(world, mask);
+	return follow !== undefined && follow !== entity;
+}
+
+/**
+ * Where `target`'s box lies on the surface, from `local`, where `entity`'s
+ * does: the two world transforms tell how one box sits against the other,
+ * whatever camera, resolution or transition put `entity` where it is.
+ */
+function relativeTransform(world: World, entity: Entity, target: Entity, local: DOMMatrix): DOMMatrix {
+	const transforms = store(world, WorldTransform);
+	const of = (e: Entity) => {
+		const id = e.id();
+		return new DOMMatrix([transforms.a[id]!, transforms.b[id]!, transforms.c[id]!, transforms.d[id]!, transforms.e[id]!, transforms.f[id]!]);
+	};
+	return local.multiply(of(entity).inverse()).multiply(of(target));
+}
+
+// ── Pixelation ───────────────────────────────────────────────
+
+// Where a node is sampled down to its blocks: one canvas, reused.
+let blocks: { canvas: OffscreenCanvas; ctx: OffscreenCanvasRenderingContext2D } | null = null;
+
+/**
+ * Pixelates `source`, the node as drawn on the surface, into `target`
+ * within the node's box: the box is cut into squares of `size` px of the
+ * node — so the blocks sit on the box and turn and scale with it, the same
+ * at any preview zoom or export resolution — each filled with what is under
+ * it, sampled down and drawn back up without smoothing.
+ */
+function pixelate(world: World, entity: Entity, target: Layer, source: OffscreenCanvas, size: number, local: DOMMatrix): void {
+	const computed = store(world, Computed);
+	const w = computed.width[entity.id()]!;
+	const h = computed.height[entity.id()]!;
+	if (!(w > 0 && h > 0)) return;
+	const columns = Math.max(1, Math.ceil(w / size));
+	const rows = Math.max(1, Math.ceil(h / size));
+
+	if (!blocks) {
+		const canvas = new OffscreenCanvas(columns, rows);
+		blocks = { canvas, ctx: canvas.getContext('2d')! };
+	}
+	const { canvas, ctx } = blocks;
+	if (canvas.width !== columns || canvas.height !== rows) {
+		canvas.width = columns;
+		canvas.height = rows;
+	}
+
+	// Down: the surface mapped into the box, one pixel a block.
+	ctx.setTransform(1, 0, 0, 1, 0, 0);
+	ctx.clearRect(0, 0, columns, rows);
+	ctx.globalCompositeOperation = 'source-over';
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'high';
+	ctx.setTransform(new DOMMatrix().scaleSelf(1 / size, 1 / size).multiplySelf(local.inverse()));
+	ctx.drawImage(source, 0, 0);
+
+	// Up: each block a square of the box, replacing what was there.
+	const out = target.ctx;
+	out.save();
+	out.setTransform(local);
+	drawOnto(out, () => drawRectPath(world, entity));
+	out.clip();
+	out.filter = 'none';
+	out.globalAlpha = 1;
+	out.globalCompositeOperation = 'destination-out';
+	out.fillStyle = '#000000';
+	out.fill();
+	out.globalCompositeOperation = 'source-over';
+	out.imageSmoothingEnabled = false;
+	out.setTransform(local.scale(size, size));
+	out.drawImage(canvas, 0, 0);
+	out.restore();
 }
 
 /**

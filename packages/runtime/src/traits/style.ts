@@ -44,6 +44,10 @@ export const Mask = trait({
 	inverted: false,
 	// How much a mask file's edge is smoothed, 0 to 1 (see `traceMask`).
 	smoothing: DEFAULT_MASK_SMOOTHING,
+	// The authored id of another clip the mask is placed on and timed by
+	// (`follow`): a node behind that clip's subject masks itself with the
+	// subject's frames, where the clip shows them. Empty: the mask's own node.
+	follow: '',
 });
 
 // Single gradient stop: its position along the gradient (0-1). Its color and

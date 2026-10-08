@@ -62,6 +62,8 @@ export type BlendMode =
  * rest an amount 0–1. `opacity` is the node's opacity as an effect (0–1,
  * default 1): on its own it is the node's `opacity` prop; with a `<mask>`
  * under it, what is outside the mask goes transparent — the cut-out.
+ * `pixelate` takes a block size in px of the node (1 or less is off): with
+ * a `<mask>` under it, a privacy pixelation that follows a tracked object.
  */
 export type EffectType =
   | "blur"
@@ -72,7 +74,8 @@ export type EffectType =
   | "invert"
   | "saturate"
   | "sepia"
-  | "opacity";
+  | "opacity"
+  | "pixelate";
 
 /**
  * Easing for the segment from a keyframe to the next one: a named preset or
@@ -602,7 +605,7 @@ export type ShadowProps = ColorProps & OpacityProps & Pick<CompositeProps, "hidd
 export type EffectProps = Pick<CompositeProps, "hidden"> & {
   /** Which filter to apply. */
   type: EffectType;
-  /** The amount: px for "blur", degrees for "hueRotate", 0–1 otherwise. */
+  /** The amount: px for "blur" and "pixelate" (block size), degrees for "hueRotate", 0–1 otherwise. */
   value: number;
   /** `<Mask>` children limiting the effect, and `<KeyframeTrack>` children. */
   children?: SolidJSX.Element;
@@ -641,6 +644,16 @@ export type MaskProps = Pick<CompositeProps, "hidden"> & TrackChildren & {
    * either way. Default 0.25.
    */
   smoothing?: number;
+  /**
+   * The `id` of a video clip whose tracked subject this mask is: the frames
+   * are placed in that clip's box, with its transform and fit, and timed by
+   * its source time rather than the node's — so a text above the clip can
+   * be masked by a person in it. `<effect type="opacity" value={1}>` with an
+   * `inverted` mask following the clip puts the node behind the subject:
+   * where the subject is, the clip below shows through. While the clip is
+   * not playing, the mask covers nothing. Default: the mask's own node.
+   */
+  follow?: string;
 };
 
 /**

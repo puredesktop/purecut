@@ -26,7 +26,7 @@ import { clamp } from '../math/common';
 import { getTransitionWindow } from '../utils/transition';
 import {
 	resolveAudioDecoder, resolveCaptionDecoder, resolveImageDecoder,
-	resolveShaderHost, resolveVideoDecoder,
+	resolveShaderHost, resolveVideoDecoder, resolveMaskFollow,
 } from '../media';
 import { whenHtmlReady } from '../media/html';
 import { AudioBus } from '../media/audio-bus';
@@ -262,9 +262,22 @@ function forwardMaskDecoders(world: World, scene: Entity, entity: Entity): void 
 		for (const mask of cache.masks[effect.id()] ?? []) {
 			if (mask.has(Hidden) || !mask.has(AssetId)) continue;
 
+			// A mask following another clip plays on that clip's source time,
+			// the frames it was tracked on; while that clip is off, it rests.
+			const follow = resolveMaskFollow(world, mask);
+			if (follow === null) continue;
+			let clipFrame = sourceFrame;
+			if (follow !== undefined && follow !== entity) {
+				const fid = follow.id();
+				const near = globalFrame >= computed.start[fid]! - WARMUP_FRAMES && globalFrame < computed.end[fid]! + WARMUP_FRAMES && hasCache;
+				if (computed.visibility[fid] !== 1 && !near) continue;
+				const window = getSourceWindow(follow);
+				clipFrame = clamp(computed.localTime[fid]!, window.in, window.out);
+			}
+
 			const decoder = resolveVideoDecoder(world, mask);
 			if (!decoder) continue;
-			const frame = Math.max(0, sourceFrame - (maskStore.offset[mask.id()] ?? 0));
+			const frame = Math.max(0, clipFrame - (maskStore.offset[mask.id()] ?? 0));
 			// Seek first: the editor keeps no promise list, and an optional call
 			// skips its arguments along with itself.
 			const seek = decoder.seekTo(frame, fps);

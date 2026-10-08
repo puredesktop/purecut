@@ -90,6 +90,7 @@ export enum EffectType {
   SATURATE,
   SEPIA,
   OPACITY,
+  PIXELATE,
 }
 
 export enum MotionType {
