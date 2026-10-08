@@ -1,4 +1,3 @@
-import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
@@ -8,6 +7,7 @@ import { prepareDependencies } from "./prepare-dependencies.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 process.chdir(root);
 prepareDependencies(root);
+const { build } = await import("esbuild");
 await import("./check-runtime.mjs");
 await import("./build-compiler.mjs");
 await build({absWorkingDir:root,entryPoints:["purecut/integration.ts"],outfile:"purecut/integration-runtime.js",bundle:false,format:"esm",platform:"browser"});
