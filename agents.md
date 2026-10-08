@@ -35,12 +35,12 @@ A project exports a Solid component returning `<stage><scene active width={1280}
 
 - `<rect clipPath>` inside a node clips that node to the rect's box. Several clip paths intersect. A clip path is never drawn, and it keeps its own transform and timing, so a keyframed clip path makes a wipe. The old spelling `<rect mask>` still works; write `clipPath`.
 - `<mask src="masks/<video>/Tracking 1.mask" />` inside an `<effect>` limits that effect to a tracked object. Under `<effect type="opacity" value={1}>` it is a cut-out: the clip shows only inside the mask. Under another effect, such as `blur`, the effect applies only inside the mask; `inverted` flips that. Other props: `sourceIn` (the clip's source time of the mask's first frame), `blur` (feather in px), `opacity` (strength 0–1), `smoothing` (0–1, default 0.25) and `hidden`.
-- Mask files come only from the user's **Object mask** tool (M). It tracks an object in a video clip on this computer, with a SAM 2.1 model the user downloads once. You cannot create or track masks, and you never run a model. Use only `.mask` paths that already appear in the project or in `getCutContext`'s `objectMasks`, and never point a mask at another file type. To mask a new object, ask the user to pick the Object mask tool, click the person or object in the video, and Confirm; then read the context again.
+- Mask files come only from the user's **Object mask** tool (M). It tracks an object in a video clip on this computer, with a SAM 2.1 model the user downloads once. You cannot create or track masks, and you never run a model. Use only `.mask` paths that already appear in the project or in `getCutContext`'s `objectMasks`, and never point a mask at another file type. To mask a new object, use `trackCutObject` (below), which opens the tool for the person; then read the context again.
 - `objectMasks` in `getCutContext` lists every tracked mask: `path` (the `src`), `video` (the footage it was tracked on), `sourceIn` (write it as the mask's `sourceIn` when it is above 0) and `clips` (the source stamps, `index.tsx:<id>`, of the clips playing that footage).
 
 #### Privacy blur
 
-To hide a face, a plate or a screen for a whole clip, give the clip a `blur` or `pixelate` effect holding the object's mask. `value` is the strength in px of the clip: blur radius (24 is a good start) or block size (24). Only the masked object changes, in the preview and the export alike.
+To hide a face, a plate or a screen for a whole clip, give the clip a `blur` or `pixelate` effect holding the object's mask. `value` is the strength in px of the clip: blur radius (24 is a good start) or block size (24). Only the masked object changes, in the preview and the export alike. With no mask of the object yet, ask for one with `trackCutObject` and `use: "blur"` or `"pixelate"`: confirming adds this effect for you.
 
 ```tsx
 <rect id="street" …><videoPaint src="footage/street.mp4" />
@@ -66,6 +66,20 @@ To put a text (or any layer) behind a tracked person or object, so they stand in
 
 - `follow` is the clip's `id` (from `objectMasks[].clips`, without `index.tsx:`); the mask is placed in that clip's box and timed by its footage, so the text needs no matching position or timing. The text must be above the clip (later in the scene) and overlap it in time; the subject shows through from the clip, so the clip must not itself be cut out to that subject (an `opacity` effect on the clip holding the same mask). If it is, say so and propose removing that cut-out.
 - Turning it off is removing that effect. Use `proposeCutSource` for both; the user's inspector does the same in one undo step (the text's **Behind subject** section).
-- When no mask of the subject exists, do not invent one: ask the user to track the subject with the Object mask tool (M) first, or to pick **Use as: Behind text** in the tool's bar, which does both at once.
+- When no mask of the subject exists, do not invent one: call `trackCutObject` with `use: "behind"` (below), which tracks the subject and puts the texts above the clip behind it in one step once the person confirms.
+
+#### Asking the person to track an object
+
+Use `trackCutObject` when the person asks for something that needs a mask of an object that is not in `objectMasks` yet: "blur his face", "pixelate the number plate", "cut her out", "put the title behind her".
+
+```json
+{ "clip": "index.tsx:talk", "at": { "x": 0.52, "y": 0.31 }, "time": 4.2, "use": "blur", "label": "his face" }
+```
+
+- `clip` is a directly authored video clip in the open scene (`objectMasks[].clips`, or a rect with a `videoPaint` in the JSX). Locked, loop-generated and non-video clips are rejected, and so is `use: "behind"` with no text above the clip at that time.
+- `at` is only a **suggestion**: where you believe the subject is, 0 to 1 from the top left of the clip's video frame, from what you know (the person's words, a screenshot the shell gave you, a typical framing). You cannot see the video's pixels; do not claim you found or saw the subject. Leave `at` out when you have no idea. `time` is seconds on the scene timeline within the clip (default: the playhead, or the clip's start). `use` is `cutout` (default), `blur`, `pixelate` or `behind`; `label` is how the request names the object.
+- The tool returns `awaiting_person` at once. **Nothing has changed**: PureCut has opened the Object mask tool on the clip with your point ringed as "Suggested" and a note saying the assistant asked. Tell the person to click the subject or choose **Use suggested point**, adjust it, and choose **Confirm**. If the tracking model is not on this computer, the bar asks them to download it (one time, from Hugging Face); only they can agree. Tracking runs in the app, on this computer.
+- One request at a time: a second `trackCutObject` while one is waiting is rejected. Do not call it again to "retry"; read the status.
+- When the person says they are done (or before you edit with the mask), call `getCutTrackStatus`. `done` gives `mask` (the `.mask` path), the `use` the person confirmed (they may have changed it) and how many elements took it: the source **already has** the effect (the clip's blur/pixelate/cut-out, or the texts' behind-subject effect) as one undo step. Read `getCutContext` and adjust it with `proposeCutEdits` (strength: the effect's `value`) or `proposeCutSource`; never run or request tracking again for the same object. `pending` says what is still awaited (`waitingFor`: `click`, `confirm`, `download-consent`, `model-download`, `tracking`). `cancelled` (the person cancelled, closed the tool, declined the download, switched project or removed the clip), `unavailable` (no WebGPU in this window) and `failed` come with a `message` to relay; the project is unchanged.
 
 Use `checkCut({id})` to check a scene for composition issues; it is not a visual review. Call `exportCut({id})` only when requested, using a scene id from current JSX. Export does not prove recognition accuracy or the quality of speech cuts; review playback when judging those.

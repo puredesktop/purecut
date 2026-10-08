@@ -164,3 +164,26 @@ mask: pixels of preview and decoded export agree for behind subject, blur and
 pixelate; the editor's commands undo in one step and round-trip through
 `applyEdits` and the compiler. `scripts/test-mask-uses-visual.mjs` takes the
 screenshots.
+
+### The assistant asks to track an object
+
+The drawer agent never runs a model. `trackCutObject({clip, at?, time?, use?,
+label?})` validates the clip (a directly authored, unlocked video clip in the
+open scene), moves the playhead there, and picks the Object mask tool aimed at
+that clip with `use` preselected. The agent's `at` is drawn on the video as a
+dashed "Suggested" ring, not a prompt; a note above the bar says the assistant
+asked, for what, and to click the subject or **Use suggested point**. Opening
+writes nothing to the project, and returns `awaiting_person` at once. The
+model's download consent is the bar's own, unchanged.
+
+The person's Confirm runs the normal tracking and commit
+(`finishTrackedObject`): one undo step. Cancel, Esc, another tool, closing the
+project or removing the clip end the request as cancelled; no WebGPU ends it as
+unavailable. `getCutTrackStatus` reports pending (with what is awaited),
+done (mask path, the use confirmed, how many elements took it), cancelled,
+unavailable or failed, with a message the agent can relay. One request at a
+time (`engine/object-mask/request.ts`).
+
+Verified by `browser-track-request-check` (in `test:purecut`) with stubbed
+tracking and `scripts/test-track-request-visual.mjs` (screenshots, Cancel in
+the bar).

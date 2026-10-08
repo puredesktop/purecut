@@ -27,7 +27,7 @@
       "tools": [
         {
           "name": "getCutContext",
-          "description": "Read the open timeline project JSX, revision hash, playhead, fonts and objectMasks (masks the user tracked, each with its .mask path, footage, sourceIn and the clip ids playing that footage). Read before edits.",
+          "description": "Read the open timeline project JSX, revision hash, playhead, fonts, objectMasks (masks the user tracked, each with its .mask path, footage, sourceIn and the clip ids playing that footage) and pendingTrack (a trackCutObject request still waiting for the person). Read before edits.",
           "inputSchema": {
             "type": "object",
             "properties": {},
@@ -190,6 +190,75 @@
             ]
           },
           "requiresApproval": true
+        },
+        {
+          "name": "trackCutObject",
+          "description": "Ask the person to track an object (a face, a person, a plate) in a video clip, to blur, pixelate or cut it out or put a text behind it. You never run a model and cannot see the video: give the clip, optionally the point where you believe the subject is (0-1 of the clip's frame) and the time. PureCut opens its Object mask tool on that clip with your point shown as a suggestion and the use preselected; the person clicks the subject or takes your point, agrees to the one-time model download if needed, and confirms. Tracking runs in the app on this computer. Returns awaiting_person immediately: nothing has changed yet. One request at a time; locked, loop-generated and non-video clips are rejected. Afterwards call getCutTrackStatus.",
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "clip": {
+                "type": "string",
+                "description": "The video clip, index.tsx:<id> (see getCutContext objectMasks[].clips or the JSX)."
+              },
+              "at": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "description": "Suggested point on the subject, 0-1 from the top left of the clip's video frame. Only a suggestion the person confirms or replaces."
+              },
+              "time": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Seconds on the scene timeline to show; must be within the clip. Defaults to the playhead, or the clip's start."
+              },
+              "use": {
+                "type": "string",
+                "enum": [
+                  "cutout",
+                  "blur",
+                  "pixelate",
+                  "behind"
+                ],
+                "description": "What the mask is for: cutout (keep only the object), blur or pixelate (hide it), behind (put the texts above the clip behind it). Default cutout. The person may change it."
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 60,
+                "description": "What to call the object in the request the person sees, e.g. \"his face\"."
+              }
+            },
+            "required": [
+              "clip"
+            ]
+          },
+          "requiresApproval": false
+        },
+        {
+          "name": "getCutTrackStatus",
+          "description": "What came of the latest trackCutObject request: pending (with what the person still has to do), done (the new mask path and the use applied; the source already changed, read getCutContext), cancelled, unavailable (no WebGPU on this computer) or failed, each with a message you can relay. Reads app state only; call it when the person says they are done, not in a loop.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "requiresApproval": false
         },
         {
           "name": "openCutTranscript",

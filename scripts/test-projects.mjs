@@ -125,6 +125,7 @@ try {
       await (await import('/scripts/browser-upstream-runtime-check.ts')).checkUpstreamRuntimeFixes();
       await (await import('/scripts/browser-object-mask-check.tsx')).checkObjectMasks();
       await (await import('/scripts/browser-mask-uses-check.tsx')).checkMaskUses();
+      globalThis.__trackRequests = await (await import('/scripts/browser-track-request-check.tsx')).checkTrackRequests();
       const reviewVideo = await (await import('/scripts/browser-timeline-check.ts')).checkTimeline();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport(true);
@@ -502,6 +503,7 @@ try {
       ),
   );
   console.log(result);
+  console.log(await page.evaluate(() => globalThis.__trackRequests));
   // Outfit is bundled: nothing for it may go to a remote host.
   if (blockedFontRequests.some((url) => /outfit/i.test(url)))
     throw Error(`Bundled Outfit was requested remotely: ${blockedFontRequests.filter((url) => /outfit/i.test(url)).join(', ')}`);

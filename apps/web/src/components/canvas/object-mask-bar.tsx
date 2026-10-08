@@ -32,8 +32,12 @@ import {
   objectMaskModel,
   objectMaskModelLoad,
   objectMaskUse,
+  pendingTrackRequest,
   pickObjectMaskModel,
   preloadObjectMaskModel,
+  promptObjectMask,
+  requestSubject,
+  usePurpose,
   setObjectMaskUse,
   getTargetEffect,
   textsAboveClip,
@@ -129,7 +133,10 @@ export function ObjectMaskBar() {
   };
 
   return (
-    <div class="cut-tool-bar absolute bottom-16 left-1/2 -translate-x-1/2 z-10 rounded-xl px-1.5 py-1 bg-background border border-border flex gap-1 items-center">
+    // PureCut: the dock holds the bar, and above it an assistant's request while one is open.
+    <div class="cut-tool-dock absolute bottom-16 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+    <AssistantAsk blocked={blocked()} status={state()?.status ?? null} />
+    <div class="cut-tool-bar rounded-xl px-1.5 py-1 bg-background border border-border flex gap-1 items-center">
       <ModelMenu disabled={busy()} />
       <Separator orientation="vertical" class="min-h-5" />
       <Show
@@ -165,6 +172,78 @@ export function ObjectMaskBar() {
         </Tooltip>
       </Show>
     </div>
+    </div>
+  );
+}
+
+/**
+ * The assistant's request, over the bar while it waits for the person
+ * (PureCut): who asked, what for, and what to do — click the subject, or take
+ * the point the assistant suggests, which the canvas marks as a suggestion.
+ * Nothing is tracked until the person confirms, and the model's download
+ * still waits for them in the bar below.
+ */
+function AssistantAsk(props: { blocked: ObjectMaskModelLoad | null; status: ObjectTrackStatus | null }) {
+  const world = useWorld();
+  const request = useDerived(() => pendingTrackRequest(world));
+  const prompted = useDerived(() => {
+    const ask = pendingTrackRequest(world);
+    return !!ask && getObjectTrack()?.clip === ask.clip;
+  });
+  const canTakePoint = () => !!request()?.point && !prompted() && !props.blocked;
+
+  const hint = () => {
+    if (props.blocked?.phase === "needs-download")
+      return "Tracking runs on this computer and needs its model first. Nothing downloads until you choose Download.";
+    if (props.blocked) return "The tracking model could not load. The note below says why.";
+    switch (prompted() ? props.status : null) {
+      case "loading":
+      case "segmenting":
+        return "Finding the object…";
+      case "seeded":
+        return "Click to add or take away parts, then Confirm to follow it through the clip.";
+      case "tracking":
+      case "saving":
+        return "Tracking on this computer. The mask lands in the project when it is done.";
+      case "error":
+        return "That did not work. Click the subject again, or Cancel.";
+      default:
+        return request()?.point
+          ? "Click the subject, or confirm its point. The ringed spot is only a suggestion."
+          : "Click the subject in the video to start.";
+    }
+  };
+
+  return (
+    <Show when={request()}>
+      {(ask) => (
+        <section class="cut-track-ask" role="status" aria-label="Request from the assistant">
+          <span class="cut-track-ask-mark" aria-hidden="true">
+            <Icon name="ask-chat" class="size-4" />
+          </span>
+          <div class="cut-track-ask-text">
+            <p class="cut-track-ask-eyebrow">From the assistant</p>
+            <p class="cut-track-ask-title">
+              The assistant wants to track <strong>{requestSubject(ask())}</strong> in{" "}
+              <strong>{ask().clipName}</strong> {usePurpose(ask().use)}.
+            </p>
+            <p class="cut-track-ask-hint">{hint()}</p>
+          </div>
+          <Show when={canTakePoint()}>
+            <Button
+              variant="secondary"
+              class="cut-track-ask-action"
+              onClick={() => {
+                const current = pendingTrackRequest(world);
+                if (current?.point && current.clip.isAlive()) promptObjectMask(world, current.clip, { ...current.point, label: 1 });
+              }}
+            >
+              Use suggested point
+            </Button>
+          </Show>
+        </section>
+      )}
+    </Show>
   );
 }
 
