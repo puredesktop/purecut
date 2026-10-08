@@ -123,6 +123,7 @@ try {
       await (await import('/scripts/browser-export-cancel-check.tsx')).checkExportCancel(stage => window.inspectExportCancel(stage));
       await (await import('/scripts/browser-editing-check.ts')).checkEverydayEditing();
       await (await import('/scripts/browser-upstream-runtime-check.ts')).checkUpstreamRuntimeFixes();
+      await (await import('/scripts/browser-object-mask-check.tsx')).checkObjectMasks();
       const reviewVideo = await (await import('/scripts/browser-timeline-check.ts')).checkTimeline();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport(true);
