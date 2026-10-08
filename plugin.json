@@ -87,7 +87,7 @@
                         },
                         "fill": {
                           "type": "string",
-                          "description": "Hex colour such as #DF2626. On a text this is the colour the glyphs are seen in: it recolours the text's visible solid paint (or its own fill when it has none). Never put a colour in `text`; `text` is only what the element says."
+                          "description": "Hex colour such as #DF2626. On a text or rect this is the colour it is seen in: it recolours the element's topmost visible solid paint (or its own fill when it has none). Never put a colour in `text`; `text` is only what the element says."
                         },
                         "start": {
                           "type": "number"

@@ -72,7 +72,7 @@ function colourTarget(text: JsxTag): { tag: JsxTag; name: "color" | "fill" } {
 }
 
 /**
- * Rewrites the `fill` of every edit that targets a `<text>` onto where that
+ * Rewrites the `fill` of every edit that targets a `<text>` or `<rect>` onto where that
  * text's visible colour lives (see `colourTarget`): a set on its topmost
  * visible solid paint child, or the text's own intrinsic prop. Edits to
  * anything else, and edits without `fill`, pass through unchanged.
@@ -106,7 +106,9 @@ export async function retargetTextColours(
       typeof address.locator === "number"
         ? all.slice(address.locator, address.locator + 1)
         : all.filter((tag) => idOf(tag) === address.locator);
-    const text = matches.length === 1 && lower(tagName(matches[0]!)) === "text" ? matches[0]! : undefined;
+    // A text, or a plain <rect>: `fill` on either is the colour it is seen in
+    // (hasSeenColour in apps/web/src/engine/text-colour.ts).
+    const text = matches.length === 1 && ["text", "rect"].includes(lower(tagName(matches[0]!))) ? matches[0]! : undefined;
     if (!text) {
       out.push(edit);
       continue;
