@@ -185,6 +185,15 @@
   #cut-editor .cut-toolbar { backdrop-filter: none; background: var(--pure-chrome-paper); }
 }
 
+/* Meters: the upstream editor's neon green/yellow/red reads as a toy next to
+   the desk's paper. Same zones, quieter inks: mint, amber, coral. */
+:root[data-app="cut"] {
+  /* Tailwind resolves --color-meter-* on :root, so the inks are set here. */
+  --meter-green: #3fcf8e;
+  --meter-yellow: #f0b84a;
+  --meter-red: #ef5d50;
+}
+
 /* Floating inspectors (fill, stroke, asset, export…) float over the stage and
    timeline. The window's glass surface is translucent and they have no blur of
    their own, so on glass the timeline read straight through them and looked
