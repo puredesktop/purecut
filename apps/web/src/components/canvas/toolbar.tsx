@@ -58,7 +58,7 @@ export function Toolbar() {
                 selectedTool() === ToolType.HAND ? ToolType.HAND : ToolType.MOVE
               )}
             >
-              <Icon name={selectedTool() === ToolType.HAND ? 'hand' : 'move'} />
+              <Icon name={selectedTool() === ToolType.HAND ? 'cut-tool.hand' : 'cut-tool.select'} />
             </TooltipTrigger>
             <TooltipContent shortcut={selectedTool() === ToolType.HAND ? 'H' : 'V'}>
               {selectedTool() === ToolType.HAND ? 'Hand' : 'Move'}
@@ -72,7 +72,7 @@ export function Toolbar() {
                     {...triggerProps}
                     as={(buttonProps) => (
                       <Button {...buttonProps} size="icon-select" variant="ghost" class="text-muted-foreground">
-                        <Icon name="chevron-down" />
+                        <Icon name="cut-tool.chevron" />
                       </Button>
                     )}
                   />
@@ -86,7 +86,7 @@ export function Toolbar() {
                   <div classList={{ "visible": selectedTool() === ToolType.MOVE }} class="invisible">
                     <Icon name="confirm-check" class="text-foreground" />
                   </div>
-                  <Icon name="move-small" class="text-foreground" />
+                  <Icon name="cut-tool.select" class="text-foreground" />
                   <span class="min-w-12 mx-1">Move</span>
                   <DropdownMenuShortcut>V</DropdownMenuShortcut>
                 </DropdownMenuItem>
@@ -94,7 +94,7 @@ export function Toolbar() {
                   <div classList={{ "visible": selectedTool() === ToolType.HAND }} class="invisible">
                     <Icon name="confirm-check" class="text-foreground" />
                   </div>
-                  <Icon name="hand" class="text-foreground" />
+                  <Icon name="cut-tool.hand" class="text-foreground" />
                   <span class="min-w-12 mx-1">Hand</span>
                   <DropdownMenuShortcut>H</DropdownMenuShortcut>
                 </DropdownMenuItem>
@@ -111,7 +111,7 @@ export function Toolbar() {
             onClick={() => handleToolChange(ToolType.SCENE)}
             class={selectedTool() === ToolType.SCENE ? 'text-foreground' : 'text-muted-foreground'}
           >
-            <Icon name="frame" class="size-5" />
+            <Icon name="cut-tool.frame" />
           </TooltipTrigger>
           <TooltipContent shortcut="F">Frame</TooltipContent>
         </Tooltip>
@@ -123,7 +123,7 @@ export function Toolbar() {
             onClick={() => handleToolChange(ToolType.RECT)}
             class={selectedTool() === ToolType.RECT ? 'text-foreground' : 'text-muted-foreground'}
           >
-            <Icon name="tool.rectangle" />
+            <Icon name="cut-tool.rectangle" />
           </TooltipTrigger>
           <TooltipContent shortcut="R">Rectangle</TooltipContent>
         </Tooltip>
@@ -135,7 +135,7 @@ export function Toolbar() {
             onClick={() => handleToolChange(ToolType.TEXT)}
             class={selectedTool() === ToolType.TEXT ? 'text-foreground' : 'text-muted-foreground'}
           >
-            <Icon name="tool.text" />
+            <Icon name="cut-tool.text" />
           </TooltipTrigger>
           <TooltipContent shortcut="T">Text</TooltipContent>
         </Tooltip>

@@ -24,6 +24,7 @@
     "build:purecut": "node scripts/purecut-dev.mjs --build",
     "test:purecut": "node scripts/test-projects.mjs",
     "test:purecut:tools": "node scripts/test-source-tools.mjs",
+    "test:purecut:edit-core": "node scripts/test-edit-core.mjs",
     "test:purecut:disk": "node scripts/test-disk-editor.mjs",
     "test:purecut:native": "node scripts/test-native-editor.mjs",
     "check:purecut": "npm run check:dependencies && tsc --noEmit -p apps/web/tsconfig.app.json && tsc --noEmit -p purecut/tsconfig.json && tsc --noEmit -p purecut/tsconfig.frame.json",

@@ -11,9 +11,9 @@
  * Every change goes through `DocumentEditor`, because the source is the
  * document: dragging a node writes `x`/`y` back to the element it came from,
  * and dropping it into a scene moves the element under that scene's, the same
- * way the inspector or a hand edit would. Alt-drag duplication is the one
- * gesture with no spelling here: it would have to author a copy of a subtree
- * the JSX may well be generating.
+ * way the inspector or a hand edit would. Alt-dragging duplicates first
+ * (`DocumentEditor.duplicate`) and then moves the copies, leaving the
+ * originals where they were.
  */
 
 import {
@@ -26,7 +26,8 @@ import {
 	getSelection, getSelectionMask, identity2D, invert2D, isPointerInEntity,
 	multiply2D, quadCenter, quadContainsQuad, quadsIntersect, rectToQuad,
 	rotate2D, scale2D,
-	store, syncInteractiveState, togglePlayback, transformPoint, translate2D,
+	store, syncInteractiveState, togglePlayback, transformPoint, transformSystem,
+	translate2D,
 } from '@diffusionstudio/runtime';
 import { Not, Or } from 'koota';
 
@@ -651,6 +652,14 @@ export function handleMaskInteraction(world: World, event: DispatchedPointerEven
 	}
 
 	if (event.type === 'dragstart') {
+		// A locked selection does not move, so alt-drag leaves it alone rather
+		// than stacking copies that would stay where they landed.
+		const selection = getSelection(world);
+		if (keys(world).has('alt') && !selection.some((entity) => containsLocked(world, entity))
+			&& editor.duplicate(selection).length) {
+			transformSystem(world);
+		}
+
 		snapshotSelectionMask(world);
 		snapshotSelectionTransforms(world);
 		snapshotSnapCandidates(world);

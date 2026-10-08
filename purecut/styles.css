@@ -193,3 +193,15 @@
   --meter-yellow: #f0b84a;
   --meter-red: #ef5d50;
 }
+
+/* Floating inspectors (fill, stroke, asset, export…) float over the stage and
+   timeline. The window's glass surface is translucent and they have no blur of
+   their own, so on glass the timeline read straight through them and looked
+   stacked on top. They take the opaque paper the desk's popovers use, and sit
+   above the editor's own layers (menus they open stay above them). */
+:root[data-app="cut"] [data-slot="floating-inspector"] {
+  --background: var(--pure-chrome-paper);
+  background-color: var(--pure-chrome-paper);
+  z-index: 1000;
+  backdrop-filter: blur(20px) saturate(140%);
+}
