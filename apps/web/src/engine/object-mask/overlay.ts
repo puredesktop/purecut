@@ -6,6 +6,7 @@ import { Culled, Hidden, HitRegions, Tool, ToolType, entityQuad, isPointerInEnti
 import { traceMask } from '@diffusionstudio/assets';
 import { geometryOf } from '@diffusionstudio/sam2/models';
 
+import { isEditLocked } from '../locking';
 import { ObjectMaskTool, Pointer } from '../traits';
 import { endMaskStroke, paintableObjectTrack } from './brush';
 import { maskFrame } from './frame';
@@ -132,7 +133,8 @@ function updateHover(world: World, target: { clip: Entity; rect: VideoRect } | n
  */
 function toolTarget(world: World): { clip: Entity; rect: VideoRect } | null {
 	const clip = getTargetClip() ?? videoUnderPointer(world);
-	if (!clip || !clip.isAlive() || clip.has(Culled) || clip.has(Hidden)) return null;
+	// PureCut: a locked clip takes no mask, so it offers no prompt either.
+	if (!clip || !clip.isAlive() || clip.has(Culled) || clip.has(Hidden) || isEditLocked(clip)) return null;
 	const rect = getVideoRect(world, clip);
 	return rect ? { clip, rect } : null;
 }

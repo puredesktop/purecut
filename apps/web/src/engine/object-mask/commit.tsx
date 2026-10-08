@@ -8,6 +8,7 @@ import { Cache, Effect, EffectType, FrameRate, Hidden, Library, getParentNode } 
 import { geometryOf } from '@diffusionstudio/sam2/models';
 
 import { getDocumentEditor } from '../editor';
+import { isEditLocked } from '../locking';
 import { getVideoRect } from './media';
 import { getTargetEffect } from './store';
 
@@ -26,14 +27,16 @@ const MASKS_FOLDER = 'masks';
  * clip's source time its first frame belongs to — under the effect the tool
  * was started for, or else under an `opacity` effect: the cut-out. A clip
  * that already has an opacity effect gets the mask under that one. Returns
- * the mask, or null when nothing was written (the session was cancelled or
- * the clip is not a video).
+ * the mask, or null when nothing was written (the session was cancelled, the
+ * clip is not a video, or it is locked).
  */
 export async function commitObjectMask(world: World, track: ObjectTrack): Promise<Entity | null> {
 	const library = world.get(Library);
 	const rect = getVideoRect(world, track.clip);
 	const model = track.model;
 	if (!library || !rect || !model || track.masks.length === 0) return null;
+	// PureCut: a clip locked while it was tracked takes no mask, and gets no file in the library either.
+	if (isEditLocked(track.clip)) return null;
 
 	const { signal } = track.controller;
 	const fps = world.get(FrameRate)?.value ?? 30;

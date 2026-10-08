@@ -25,6 +25,7 @@ import {
 import { createSignal } from 'solid-js';
 
 import { getDocumentEditor } from './editor';
+import { isEditLocked } from './locking';
 import { editTransform } from './input/interactions';
 
 import type { Entity, World } from 'koota';
@@ -58,10 +59,12 @@ export function clearClipPathTarget(): void {
  * Whether `entity` can become a clip path of `target`: a plain rect (a clip
  * path is always a `<rect>`, so media, text and containers are out), not one
  * already, and not the target or something the target sits inside — a node
- * cannot be moved into its own subtree.
+ * cannot be moved into its own subtree. Locked nodes are out on either side.
  */
 export function canClipWith(world: World, target: Entity, entity: Entity): boolean {
 	if (entity === target || !entity.isAlive() || !entity.get(Source)?.value) return false;
+	// PureCut: neither a locked rect nor a locked target can be written to.
+	if (isEditLocked(entity) || isEditLocked(target)) return false;
 	if (!isShape(entity) || isClipPath(entity) || getIntrinsicPaint(entity) !== undefined) return false;
 	return !getEntityTree(world, entity).includes(target);
 }
