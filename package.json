@@ -12,7 +12,8 @@
     "packages/jsx",
     "packages/koota-solid",
     "packages/reconciler",
-    "packages/runtime"
+    "packages/runtime",
+    "packages/sam2"
   ],
   "scripts": {
     "dev": "node scripts/purecut-dev.mjs",

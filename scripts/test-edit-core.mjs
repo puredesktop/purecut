@@ -4,6 +4,8 @@
 // prop writes over expressions (upstream a0f843f); and a text's `fill` going to
 // the colour it is seen in (purecut/editor-core/text-colour.ts), as the review
 // of a proposeCutEdits proposal writes it.
+// Covers object masks and clip paths (upstream e63f1c7, cde1cc1, a6e27ef): the
+// writes the object mask and clip path tools make round-trip through the file.
 import { build } from 'esbuild';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -186,6 +188,39 @@ const cases = {
     const { context } = project(`export default () => <video id="v" fill="#000000"><solidPaint id="p" color="#FFFFFF" /></video>;\n`);
     const edits = [{ kind: 'set', source: `${FILE}:v`, props: { fill: '#FF0000' } }];
     assert.deepEqual(await retargetTextColours(context.io, edits), edits);
+  },
+  async 'writes an object mask the way the tool commits it'() {
+    const { files, context } = project(`export default () => <scene id="s"><rect id="clip" width={640} height={360}><videoPaint src="clip.mp4" /></rect></scene>;\n`);
+    const result = await applyEdits(context, [
+      { kind: 'insert', source: 'pending#1', parent: `${FILE}:clip`, tag: 'effect', props: { type: 'opacity', value: 1 } },
+      { kind: 'insert', source: 'pending#2', parent: 'pending#1', tag: 'mask', props: { src: 'masks/clip/Tracking 1.mask', sourceIn: 1.5 } },
+    ]);
+    assert.deepEqual(result.skipped, []);
+    const source = files.get(FILE);
+    assert.match(source, /<effect id="[^"]+" type="opacity" value=\{1\}>\s*<mask id="[^"]+" src="masks\/clip\/Tracking 1\.mask" sourceIn=\{1\.5\} \/>\s*<\/effect>/, source);
+    assert.match(source, /<videoPaint src="clip\.mp4" \/>/, source);
+  },
+  async 'sets, clears and removes mask props'() {
+    const { files, context } = project(`export default () => <scene id="s"><rect id="r"><effect id="e" type="blur" value={8}><mask id="m" src="masks/a/Tracking 1.mask" /></effect></rect></scene>;\n`);
+    let result = await applyEdits(context, [{ kind: 'set', source: `${FILE}:m`, props: { inverted: true, smoothing: 0.5, blur: 4, opacity: 0.8 } }]);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(files.get(FILE).includes('<mask id="m" src="masks/a/Tracking 1.mask" inverted smoothing={0.5} blur={4} opacity={0.8} />'), files.get(FILE));
+    result = await applyEdits(context, [{ kind: 'set', source: `${FILE}:m`, props: { inverted: false } }]);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(files.get(FILE).includes('<mask id="m" src="masks/a/Tracking 1.mask" smoothing={0.5} blur={4} opacity={0.8} />'), files.get(FILE));
+    result = await applyEdits(context, [{ kind: 'remove', source: `${FILE}:m` }]);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(!files.get(FILE).includes('<mask'), files.get(FILE));
+    assert.match(files.get(FILE), /<effect id="e" type="blur" value=\{8\}>\s*<\/effect>/);
+  },
+  async 'makes a rect a clip path the way the clip path tool does'() {
+    const { files, context } = project(`export default () => <scene id="s"><text id="t" end={4}>Wipe</text><rect id="r" x={10} width={200} height={80} /></scene>;\n`);
+    const result = await applyEdits(context, [
+      { kind: 'move', source: `${FILE}:r`, parent: `${FILE}:t` },
+      { kind: 'set', source: `${FILE}:r`, props: { clipPath: true, x: 0 } },
+    ]);
+    assert.deepEqual(result.skipped, []);
+    assert.match(files.get(FILE), /<text id="t" end=\{4\}>Wipe\s*<rect id="r" x=\{0\} width=\{200\} height=\{80\} clipPath \/>\s*<\/text>/, files.get(FILE));
   },
 };
 

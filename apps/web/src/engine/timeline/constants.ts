@@ -115,7 +115,7 @@ export const COLORS = {
       primary: '#5AB9DD',
       foreground: '#DBEAF0',
     },
-    mask: {
+    clipPath: {
       background: '#5455DE',
       foreground: '#EAE8FC',
     },
@@ -185,7 +185,7 @@ export const LIGHT_COLORS: TimelinePalette = {
     text: { background: '#d8cbea', foreground: '#2c2140' },
     shape: { background: '#f3cfc8', foreground: '#4a1c14' },
     scene: { background: '#bfe0ee', primary: '#4c8aa8', foreground: '#0d2230' },
-    mask: { background: '#d5d5f5', foreground: '#20205a' },
+    clipPath: { background: '#d5d5f5', foreground: '#20205a' },
     adjustment: { background: '#ddd2f5', foreground: '#2a1b55' },
     html: { background: '#cfe3ea', foreground: '#123038' },
     failed: { background: '#f7dcd8', foreground: '#8c2a1a' },

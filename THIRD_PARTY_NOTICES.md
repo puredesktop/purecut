@@ -45,6 +45,7 @@ Consult the installed version’s license and notices before redistributing depe
 | `marked` | `^18.0.12` | [marked](https://github.com/markedjs/marked) |
 | `mediabunny` | `^1.32.2` | [mediabunny](https://github.com/Vanilagy/mediabunny) |
 | `nanoid` | `^6.0.1` | [nanoid](https://github.com/ai/nanoid) |
+| `onnxruntime-web` | `^1.30.0` | [onnxruntime-web](https://github.com/microsoft/onnxruntime) (MIT; its WebAssembly runtime is bundled) |
 | `path-browserify` | `^1.0.1` | [path-browserify](https://github.com/browserify/path-browserify) |
 | `react` | `^19.3.0` | [react](https://github.com/react/react) |
 | `react-dom` | `^19.3.0` | [react-dom](https://github.com/react/react) |
@@ -76,3 +77,13 @@ Inter is distributed under the SIL Open Font License 1.1; see
 Outfit (Copyright 2021 The Outfit Project Authors) is distributed under the SIL
 Open Font License 1.1; see [licenses/Outfit-OFL.txt](licenses/Outfit-OFL.txt).
 It is used by the Guinea and Spotlight caption presets.
+
+## Models fetched on request
+
+The object mask tool uses SAM 2.1 (Segment Anything Model 2.1) by Meta AI, in
+the ONNX exports Diffusion Studio publishes on Hugging Face
+(`diffusionstudio/sam2.1-{tiny,small,base-plus,large}-video-onnx-fp16`, pinned
+revisions in `packages/sam2/src/constants.ts`). They are derived from
+`facebook/sam2.1-hiera-*` and licensed Apache-2.0. PureCut does not ship the
+weights. It downloads the model the person picks, after asking, and keeps it in
+the app's private browser storage.

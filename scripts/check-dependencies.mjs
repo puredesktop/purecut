@@ -6,7 +6,7 @@ const json = async path => JSON.parse(await readFile(new URL(path, root), 'utf8'
 const manifest = await json('package.json');
 const lock = await json('package-lock.json');
 const workspaces = ['apps/web', 'packages/assets', 'packages/dapi', 'packages/encoder',
-  'packages/jsx', 'packages/koota-solid', 'packages/reconciler', 'packages/runtime'];
+  'packages/jsx', 'packages/koota-solid', 'packages/reconciler', 'packages/runtime', 'packages/sam2'];
 assert.deepEqual(manifest.workspaces, workspaces, 'Review changes to the integrated editor workspace allowlist');
 assert.deepEqual(lock.packages[''].workspaces, workspaces, 'Lockfile workspace list is stale');
 const forbidden = /^(?:electron|update-electron-app|@electron-forge\/.*|@electron\/.*|@anthropic-ai\/.*|@openai\/codex(?:-.*)?|@modelcontextprotocol\/sdk|@diffusionstudio\/(?:desktop|cli|agent-chat))$/;

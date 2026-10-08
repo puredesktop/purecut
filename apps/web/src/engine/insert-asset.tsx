@@ -83,6 +83,7 @@ export function insertAsset(world: World, asset: Asset, options: InsertAssetOpti
 		switch (asset.type) {
 			case 'VIDEO':
 			case 'SEQUENCE':
+			case 'MASK':
 				return (
 					<Rect name={name} keepAspectRatio {...position} {...size} {...timing}>
 						<VideoPaint src={src} />
@@ -112,6 +113,7 @@ function sizeOf(asset: Asset): { width: number; height: number } | undefined {
 		case 'VIDEO':
 		case 'IMAGE':
 		case 'SEQUENCE':
+		case 'MASK':
 			return { width: Math.round(asset.width), height: Math.round(asset.height) };
 		case 'AUDIO':
 			return { ...AUDIO_SIZE };

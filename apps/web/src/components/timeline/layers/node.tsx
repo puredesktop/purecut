@@ -20,7 +20,7 @@ import {
   isAdjustmentLayer,
   isCaption,
   isGroup,
-  isMask,
+  isClipPath,
   isScene,
   isSequence,
   isText,
@@ -450,7 +450,7 @@ export function NodeLayer(props: LayerRowProps) {
 function getLayerIcon(world: World, layer: TimelineNode) {
   const entity = layer.entity;
 
-  if (isMask(entity)) return "mask-small";
+  if (isClipPath(entity)) return "mask-small";
   if (isAdjustmentLayer(entity)) return "adjustment-layer";
   if (isScene(entity)) return "scene-frame-small";
   if (isSequence(entity)) return "timeline-sequence-small";
@@ -463,6 +463,7 @@ function getLayerIcon(world: World, layer: TimelineNode) {
       return "image-small";
     case 'VIDEO':
     case 'SEQUENCE':
+    case 'MASK':
       return "video-small";
     case 'AUDIO':
       return "audio-small";

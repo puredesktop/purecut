@@ -5,9 +5,10 @@
 import { assetSystem, renderSystem, transformSystem, playbackSystem, motionSystem, syncAudioBuses, AudioEngine, createRuntimeWorld, Geometry, Mode, RenderSurface, Time, ChildOf, syncInteractiveState } from '@diffusionstudio/runtime';
 import { hudSystem } from './hud';
 import { createSignal, type Accessor, type Setter } from 'solid-js';
-import { AssetSelection, Hud, Keys, MODIFIER_KEYS, Pointer, PointerEvents, ProjectConfig, SnapLines } from './traits';
+import { AssetSelection, Hud, Keys, MODIFIER_KEYS, ObjectMaskTool, Pointer, PointerEvents, ProjectConfig, SnapLines } from './traits';
 import { inputSystem } from './input/input-system';
 import { clearClipFrames, clearClipPeaks, clearMedia, clearPeaks, timelineSystem, TimelineSurface } from './timeline';
+import { clearObjectTrackOf, clearObjectTracks } from './object-mask';
 import { shortcutSystem } from './input/shortcuts';
 import { ownsKeyboardEvent } from './input/keyboard-target';
 import { Playback, stopPlayback } from '@diffusionstudio/runtime';
@@ -52,7 +53,7 @@ class Engine {
 
 	public constructor(projectId: string, options: EngineOptions = {}) {
 		this.world = createRuntimeWorld(projectId);
-		this.world.add(Pointer, Keys, SnapLines, Hud, PointerEvents, AssetSelection, ProjectConfig, TimelineSurface);
+		this.world.add(Pointer, Keys, SnapLines, Hud, ObjectMaskTool, PointerEvents, AssetSelection, ProjectConfig, TimelineSurface);
 
 		this.unsubscribe.push(
 			this.world.onAdd(ChildOf('*'), () => (this.interactiveDirty = true)),
@@ -63,6 +64,7 @@ class Engine {
 			this.world.onRemove(Geometry, (entity) => {
 				clearClipPeaks(entity.id());
 				clearClipFrames(entity.id());
+				clearObjectTrackOf(entity);
 			}),
 		);
 
@@ -302,6 +304,7 @@ class Engine {
 		// files, and are held outside the world: they go with the engine.
 		clearPeaks();
 		clearMedia();
+		clearObjectTracks();
 
 		this.unsubscribeEventListeners();
 		this.unsubscribe.forEach(unsubscribe => unsubscribe());
