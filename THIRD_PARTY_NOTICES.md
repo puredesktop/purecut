@@ -72,3 +72,7 @@ JetBrains Mono is distributed under the SIL Open Font License 1.1; see
 
 Inter is distributed under the SIL Open Font License 1.1; see
 [licenses/Inter-OFL.txt](licenses/Inter-OFL.txt).
+
+Outfit (Copyright 2021 The Outfit Project Authors) is distributed under the SIL
+Open Font License 1.1; see [licenses/Outfit-OFL.txt](licenses/Outfit-OFL.txt).
+It is used by the Guinea and Spotlight caption presets.
