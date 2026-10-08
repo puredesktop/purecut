@@ -499,8 +499,9 @@ try {
       ),
   );
   console.log(result);
-  if (!blockedFontRequests.some((url) => url.includes('the-bold-font')))
-    throw Error('The Spotlight preset font request never reached the blocked host; the offline caption check proved nothing');
+  // Outfit is bundled: nothing for it may go to a remote host.
+  if (blockedFontRequests.some((url) => /outfit/i.test(url)))
+    throw Error(`Bundled Outfit was requested remotely: ${blockedFontRequests.filter((url) => /outfit/i.test(url)).join(', ')}`);
   console.log(`PASS: caption preset colours ${await page.evaluate(() => JSON.stringify(globalThis.__captionColours))} with ${blockedFontRequests.length} remote font request(s) blocked`);
 } finally {
   await browser?.close();

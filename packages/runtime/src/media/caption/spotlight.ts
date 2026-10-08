@@ -24,8 +24,8 @@ const HIGHLIGHT_COLOR = 0x19FF75;
 // The preset's base TextStyle; the document writes it and authored style
 // props overwrite it (see CAPTION_PRESET_STYLES).
 export const SPOTLIGHT_TEXT_STYLE = {
-	fontFamily: 'The Bold Font',
-	fontWeight: '500',
+	fontFamily: 'Outfit',
+	fontWeight: '600',
 	fontStyle: FontStyle.NORMAL,
 	fontSize: 70,
 	textAlign: TextAlign.CENTER,

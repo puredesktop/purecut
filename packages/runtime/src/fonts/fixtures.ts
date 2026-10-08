@@ -2,7 +2,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/**
+ * Outfit ships inside the app (SIL OFL 1.1, licenses/Outfit-OFL.txt): the
+ * Guinea and Spotlight caption presets are drawn with it, so they render the
+ * same offline and in an export as in the preview. The bundler turns this
+ * into the built asset's URL.
+ */
+const OUTFIT_URL = new URL('./files/Outfit-VariableFont.ttf', import.meta.url).href;
+
 export const WebFonts = {
+	Outfit: {
+		weights: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
+		url: OUTFIT_URL,
+	},
 	Inter: {
 		weights: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
 		url: 'https://fonts.gstatic.com/s/inter/v20/UcCo3FwrK3iLTcviYwYZ8UA3.woff2',

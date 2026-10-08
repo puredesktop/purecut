@@ -11,9 +11,9 @@ type Counts = { white: number; green: number; cyan: number; red: number };
 /**
  * Renders a Spotlight caption to video and reads the highlighted word's colour
  * back from the decoded frames. The default highlight is #19FF75 (upstream
- * f2a8258), and an authored `colors` entry still replaces it. Run with the
- * preset's remote font host blocked: the caption must still draw, in a
- * fallback face, rather than leave the frame empty.
+ * f2a8258), and an authored `colors` entry still replaces it. Run with every
+ * remote font host blocked: Spotlight's face, Outfit, ships inside the app, so
+ * it must still load and draw.
  */
 async function renderSpotlight(id: string, colors?: string[]): Promise<Counts> {
   const files = new Map<string, File>();
@@ -101,7 +101,9 @@ export async function checkCaptionPresetColours() {
 
   const byDefault = await renderSpotlight('caption-colour-default');
   // The unspoken word stays white; the spoken one is the new green, never the old cyan.
-  if (byDefault.white < 100) throw Error(`Spotlight caption text did not draw with its font host blocked: ${JSON.stringify(byDefault)}`);
+  if (byDefault.white < 100) throw Error(`Spotlight caption text did not draw offline: ${JSON.stringify(byDefault)}`);
+  const outfit = [...globalThis.document.fonts].find(face => face.family.replace(/["']/g, '') === 'Outfit');
+  if (outfit?.status !== 'loaded') throw Error(`Bundled Outfit must load with remote font hosts blocked, got ${outfit?.status ?? 'no face'}`);
   if (byDefault.green < 100 || byDefault.cyan > 20)
     throw Error(`Spotlight highlight is not #19FF75: ${JSON.stringify(byDefault)}`);
 
