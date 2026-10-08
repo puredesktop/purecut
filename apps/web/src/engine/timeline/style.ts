@@ -10,7 +10,7 @@ import {
 	isAdjustmentLayer,
 	isCaption,
 	isGroup,
-	isMask,
+	isClipPath,
 	isRect,
 	isScene,
 	isSequence,
@@ -35,13 +35,14 @@ export function getClipStyle(entity: Entity, asset: Asset | null, errored = fals
 	if (isText(entity)) return COLORS.clip.text;
 	if (isScene(entity)) return COLORS.clip.scene;
 	if (isGroup(entity)) return COLORS.clip.group;
-	if (isMask(entity)) return COLORS.clip.mask;
+	if (isClipPath(entity)) return COLORS.clip.clipPath;
 	if (isAdjustmentLayer(entity)) return COLORS.clip.adjustment;
 	if (hasHtmlPaint(entity) || hasSurfacePaint(entity)) return COLORS.clip.html;
 
 	switch (asset?.type) {
 		case 'VIDEO':
 		case 'SEQUENCE':
+		case 'MASK':
 			return COLORS.clip.video;
 		case 'IMAGE':
 			return COLORS.clip.image;
@@ -69,7 +70,7 @@ export function getClipFallbackName(world: World, entity: Entity): string {
 	if (isScene(entity)) return 'Scene';
 	if (isSequence(entity)) return 'Sequence';
 	if (isGroup(entity)) return 'Group';
-	if (isMask(entity)) return 'Mask';
+	if (isClipPath(entity)) return 'Clip Path';
 	if (isAdjustmentLayer(entity)) return 'Adjustment';
 	if (hasHtmlPaint(entity)) return 'HTML';
 	if (hasSurfacePaint(entity)) return 'Surface';
@@ -77,6 +78,7 @@ export function getClipFallbackName(world: World, entity: Entity): string {
 	switch (getClipAsset(world, entity)?.type) {
 		case 'VIDEO':
 		case 'SEQUENCE':
+		case 'MASK':
 			return 'Video';
 		case 'IMAGE':
 			return 'Image';
