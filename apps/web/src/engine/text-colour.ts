@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { authoredElement } from '@diffusionstudio/reconciler';
-import { Geometry, Hidden, Paint, PaintType, Stroke, getEntityChildren } from '@diffusionstudio/runtime';
+import { Geometry, Hidden, Paint, PaintType, Stroke, getEntityChildren, isCaption, isText } from '@diffusionstudio/runtime';
 
 import type { Entity, World } from 'koota';
 
@@ -14,7 +14,18 @@ export interface TextColourTarget {
 }
 
 /**
- * A text's colour is the colour you see. Its own `fill`/`color` (one Color
+ * Whether `fill` on this element means the colour it is seen in: a text (not
+ * a caption, whose preset owns its colours) or a plain `<rect>`. Video and
+ * image are excluded: their own picture is what you see.
+ */
+export function hasSeenColour(entity: Entity): boolean {
+	if (isText(entity)) return !isCaption(entity);
+	const tag = authoredElement(entity)?.tag ?? '';
+	return tag.charAt(0).toLowerCase() + tag.slice(1) === 'rect';
+}
+
+/**
+ * A text's (or rect's) colour is the colour you see. Its own `fill`/`color` (one Color
  * trait) is an intrinsic solid drawn beneath every paint child, so once a
  * `<solidPaint>` sits on the glyphs that prop is invisible. The colour is the
  * topmost visible solid paint child's `color`, or, without one, the text's own

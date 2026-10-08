@@ -24,6 +24,8 @@ const SOURCE = `export default function Project() {
     <text name="Painted" x={100} y={100} fontSize={40} end={6}>Painted<solidPaint color="#FFFFFF" /></text>
     <text name="Filled" x={100} y={200} fontSize={40} fill="#10162a" end={6}>Filled</text>
     <text name="Coloured" x={100} y={300} fontSize={40} color="#FFFFFF" end={6}>Coloured</text>
+    <rect name="Box" x={600} y={100} width={120} height={80} fill="#000000" end={6}><solidPaint color="#FFFFFF" /></rect>
+    <rect name="Plain" x={600} y={300} width={120} height={80} fill="#10162a" end={6} />
   </scene></stage>;
 }`;
 
@@ -162,6 +164,31 @@ export async function checkTextColours() {
     undo();
     await frames();
     for (const name of all) check(seenColour(texts[name]!) === before[name], `${name}: one undo takes the whole proposal back`);
+    await flushPendingProjectEdits();
+
+    // Rects follow the same rule: a robot `fill` lands on the paint the rect
+    // is seen in, or on its own fill when nothing covers it.
+    const rects = Object.fromEntries(world.query(Source).filter(entity => authoredElement(entity)?.tag.toLowerCase() === 'rect')
+      .map(rect => [authoredElement(rect)!.props.name as string, rect]));
+    check(rects.Box && rects.Plain, 'fixture mounts its two rects');
+    check(seenColour(rects.Box!) === 0xffffff && seenColour(rects.Plain!) === 0x10162a,
+      `rect fixture colours: ${hex(seenColour(rects.Box!))} ${hex(seenColour(rects.Plain!))}`);
+    const rectBase = await service.readSource(project.dir);
+    const rectEdits = ['Box', 'Plain'].map(name => ({ source: rects[name]!.get(Source)!.value, props: { fill: '#DF2626' } }));
+    const rectPrepared = await service.call('purecut:prepare-edits', { dir: project.dir, baseHash: rectBase.hash, edits: rectEdits });
+    check(/name="Box"[^>]*fill="#000000"[^>]*><solidPaint[^>]*color="#DF2626"/.test(rectPrepared.source),
+      `review recolours the boxed rect's paint, not its hidden fill\n${rectPrepared.source}`);
+    check(/name="Plain"[^>]*fill="#DF2626"/.test(rectPrepared.source), 'review recolours the plain rect\'s fill');
+    applyScopedEdits(world, rectEdits);
+    await flushPendingProjectEdits();
+    await frames();
+    const rectApplied = (await service.readSource(project.dir)).source;
+    check(rectApplied === rectPrepared.source, `rect apply saves exactly the reviewed source\n--- prepared\n${rectPrepared.source}\n--- applied\n${rectApplied}`);
+    for (const name of ['Box', 'Plain'])
+      check(seenColour(rects[name]!) === PROPOSED, `${name}: proposal recolours the rect you see (${hex(seenColour(rects[name]!))})`);
+    undo();
+    await frames();
+    check(seenColour(rects.Box!) === 0xffffff && seenColour(rects.Plain!) === 0x10162a, 'one undo takes the rect proposal back');
   } finally {
     engine.stop();
     unsubscribe(); writer.dispose();

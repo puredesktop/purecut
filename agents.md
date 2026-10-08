@@ -25,7 +25,7 @@ The user can also drag-select transcript text and press Delete/Backspace or **Cu
 
 ## Other video editing tools
 
-Prefer `proposeCutEdits` for scoped placement, timing, appearance and text changes to directly authored elements. Use `index.tsx:<stable element id>` targets and the current `baseHash`. Locked and loop-generated targets are rejected. This is not a transcript editing tool. To recolour a text, send `props.fill` as a hex colour (`{source, props: {fill: "#DF2626"}}`): on a text, `fill` is the colour the glyphs are seen in, so it recolours the text's visible solid paint, or its own `fill` when it has none. `text` only replaces the words a text says; never put a colour, hex code or style in it.
+Prefer `proposeCutEdits` for scoped placement, timing, appearance and text changes to directly authored elements. Use `index.tsx:<stable element id>` targets and the current `baseHash`. Locked and loop-generated targets are rejected. This is not a transcript editing tool. To recolour a text or a rectangle, send `props.fill` as a hex colour (`{source, props: {fill: "#DF2626"}}`): on either, `fill` is the colour it is seen in, so it recolours the element's topmost visible solid paint, or its own `fill` when it has none. `text` only replaces the words a text says; never put a colour, hex code or style in it.
 
 Use `proposeCutSource` for structural JSX changes and review. `replaceCutSource` is a direct replacement tool requiring approval; pass the current hash as `baseHash`. If it conflicts, read again and preserve intervening changes.
 

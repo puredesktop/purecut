@@ -159,9 +159,21 @@ const cases = {
     await applyEdits(context, edits);
     assert.ok(files.get(FILE).includes('<text id="t" color="#FF0000">Text</text>'), files.get(FILE));
   },
-  async 'leaves fill on anything but a text alone'() {
-    const { context } = project(`export default () => <rect id="r" fill="#000000"><solidPaint id="p" color="#FFFFFF" /></rect>;\n`);
+  async 'recolours the solid paint a rect is seen in, not its covered fill'() {
+    const { files, context } = project(`export default () => <rect id="r" fill="#000000"><solidPaint id="p" color="#FFFFFF" /></rect>;\n`);
+    const edits = await retargetTextColours(context.io, [{ kind: 'set', source: `${FILE}:r`, props: { fill: '#FF0000' } }]);
+    assert.deepEqual(edits, [{ kind: 'set', source: `${FILE}:p`, props: { color: '#FF0000' } }]);
+    await applyEdits(context, edits);
+    assert.ok(files.get(FILE).includes('<rect id="r" fill="#000000"><solidPaint id="p" color="#FF0000" /></rect>'), files.get(FILE));
+  },
+  async 'writes the own fill of a rect no paint covers'() {
+    const { context } = project(`export default () => <rect id="r" fill="#000000" />;\n`);
     const edits = [{ kind: 'set', source: `${FILE}:r`, props: { fill: '#FF0000' } }];
+    assert.deepEqual(await retargetTextColours(context.io, edits), edits);
+  },
+  async 'leaves fill on a video alone'() {
+    const { context } = project(`export default () => <video id="v" fill="#000000"><solidPaint id="p" color="#FFFFFF" /></video>;\n`);
+    const edits = [{ kind: 'set', source: `${FILE}:v`, props: { fill: '#FF0000' } }];
     assert.deepEqual(await retargetTextColours(context.io, edits), edits);
   },
 };
