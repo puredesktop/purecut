@@ -64,6 +64,34 @@ try {
       document.documentElement.dataset.platformTheme = 'light';
     });
   });
+  await page.exposeFunction('inspectExportCancel', async (stage) => {
+    await mkdir('/tmp/purecut-visual', { recursive: true });
+    for (const mode of ['light', 'dark']) for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(async mode => {
+        const { fixtureThemeCss } = await import('/scripts/editor-visual-fixture.tsx');
+        document.documentElement.dataset.platformTheme = mode;
+        let style = document.getElementById('review-theme-fixture');
+        if (!style) { style = document.createElement('style'); style.id = 'review-theme-fixture'; document.head.append(style); }
+        style.textContent = fixtureThemeCss(mode);
+      }, mode);
+      await page.waitForTimeout(200);
+      const target = stage === 'confirm'
+        ? page.getByRole('alertdialog', { name: 'Stop exporting?' })
+        : page.getByRole('dialog', { name: 'Export progress' });
+      const box = await target.boundingBox();
+      if (!box || box.x < 0 || box.x + box.width > width || box.y < 0 || box.y + box.height > 900)
+        throw Error(`Export ${stage} does not fit a ${width}px window: ${JSON.stringify(box)}`);
+      if (stage === 'confirm' && (box.x < 15 || box.x + box.width > width - 15))
+        throw Error(`Export cancel confirmation lacks viewport margins: ${JSON.stringify(box)}`);
+      await page.screenshot({ path: `/tmp/purecut-visual/export-${stage}-${mode}-${width}.png` });
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.evaluate(() => {
+      document.getElementById('review-theme-fixture')?.remove();
+      document.documentElement.dataset.platformTheme = 'light';
+    });
+  });
   const result = await page.evaluate(
     async (bridgeUrl) => {
       const { ProjectService } = await import("/purecut/lib/projects.ts");
@@ -91,6 +119,7 @@ try {
       const captionColours = await (await import('/scripts/browser-caption-preset-colour-check.ts')).checkCaptionPresetColours();
       globalThis.__captionColours = captionColours;
       await (await import('/scripts/browser-video-speed-check.ts')).checkVideoSpeedExport();
+      await (await import('/scripts/browser-export-cancel-check.tsx')).checkExportCancel(stage => window.inspectExportCancel(stage));
       await (await import('/scripts/browser-editing-check.ts')).checkEverydayEditing();
       await (await import('/scripts/browser-upstream-runtime-check.ts')).checkUpstreamRuntimeFixes();
       const reviewVideo = await (await import('/scripts/browser-timeline-check.ts')).checkTimeline();
@@ -460,7 +489,7 @@ try {
       await reopened.init();
       check((await reopened.info(p.dir)).id === p.id, "reopen");
       check(changes === 1, "drawer reload event");
-      return "PASS: browser compilation, source edits, stale revisions, failed writes, path limits, random-access export, reopen, export history conflicts/filtering/removal";
+      return "PASS: export cancel confirmation, browser compilation, source edits, stale revisions, failed writes, path limits, random-access export, reopen, export history conflicts/filtering/removal";
     },
     "/@fs" +
       realpathSync(

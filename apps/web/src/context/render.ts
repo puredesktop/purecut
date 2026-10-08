@@ -3,8 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { createSignal } from "solid-js";
-import { createEncoder, computeOutputSize } from "@diffusionstudio/encoder";
-import { Computed, FrameRate, Workarea } from "@diffusionstudio/runtime";
+import { createEncoder } from "@diffusionstudio/encoder";
 
 import { createCapture } from "@/engine/capture";
 import { version } from "../../package.json";
@@ -13,21 +12,23 @@ import type { Entity } from "koota";
 import type { EncoderConfig, ExportResult } from "@diffusionstudio/encoder";
 import type { Capture } from "@/engine/capture";
 import type { Engine } from "@/engine";
-import type { ExportConfig } from "@/components/sidebar-right/inspector/export-progress";
 
 /**
- * Unified scene render path, used by the UI export (`ExportProvider.exportScene`):
- * the "Exporting Composition" overlay, the engine stop/start lifecycle, the
- * capture world the encode runs against, progress reporting, and cancel wiring
- * all live in {@link renderScene}.
+ * Unified scene render path, used by the UI export (`ExportProvider.exportScene`)
+ * and the agent's export tool (`dapi/handlers/export`): the export progress
+ * overlay, the engine stop/start lifecycle, the capture world the encode runs
+ * against, progress reporting, and cancel wiring all live in {@link renderScene}.
  */
 
+/** The encoder settings a render takes: the encoder's, less how it is driven. */
+export type ExportConfig = Omit<
+  EncoderConfig,
+  "target" | "scene" | "onProgress" | "realizeScene" | "comment"
+>;
+
 export type RenderOverlayState = {
-  config?: Partial<ExportConfig>;
-  /** The encode's actual pixel size, from the scene's own aspect ratio. */
-  width: number;
-  height: number;
-  duration: number;
+  /** No video track is encoded: video is off, or the container is audio-only. */
+  audioOnly: boolean;
   progress: number;
   remaining?: { minutes: number; seconds: number };
 };
@@ -63,24 +64,11 @@ export async function renderScene(
   if (overlay()) throw Error('An export is already running. Wait for it to finish or cancel it first.');
   const world = engine.world;
 
-  const workarea = scene.get(Workarea);
-  const computed = scene.get(Computed);
-  const frames = workarea
-    ? workarea.end - workarea.start
-    : computed?.duration ?? 0;
-  const duration = frames / (world.get(FrameRate)?.value || 30);
-
-  // The same size the encoder works out for itself, so the overlay reports
-  // the dimensions actually encoded — the scene's aspect ratio, not 16:9.
-  const { width, height } = computeOutputSize(
-    computed?.width || 1920,
-    computed?.height || 1080,
-    config?.video?.resolution ?? 1080,
-  );
+  const audioOnly = config?.video?.enabled === false || config?.format === "ogg";
 
   let cancelled = false;
   cancelActive = () => { cancelled = true; };
-  setOverlay({ config, width, height, duration, progress: 0, remaining: undefined });
+  setOverlay({ audioOnly, progress: 0, remaining: undefined });
 
   let logged = -1;
   const logProgress = (percent: number) => {
@@ -96,7 +84,7 @@ export async function renderScene(
     capture = await createCapture(world, scene, {
       dir,
       frameRate: config?.video?.fps,
-      mode: config?.video?.enabled === false || config?.format === "ogg" ? "offline-audio" : "offline-video",
+      mode: audioOnly ? "offline-audio" : "offline-video",
     });
     if (cancelled) return { type: 'canceled' };
 

@@ -2,118 +2,135 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { createEffect, createMemo, createSignal, on } from "solid-js";
 import { Show, Portal } from "solid-js/web";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPortal,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
-import { formatDuration } from "@/utils/formatters";
-import type { EncoderConfig } from "@diffusionstudio/encoder";
-
-/** The settings this overlay reads: the encoder's, less how it is driven. */
-export type ExportConfig = Omit<
-  EncoderConfig,
-  "target" | "scene" | "onProgress" | "realizeScene" | "comment"
->;
+import { renderOverlay, cancelRender } from "@/context/render";
 
 type ExportProgressProps = {
   open: boolean;
+  audioOnly: boolean;
   progress: number;
   remaining?: { minutes: number; seconds: number };
-  config?: ExportConfig;
-  width: number;
-  height: number;
-  duration: number;
   onCancel: () => void;
 };
 
 export function ExportProgress(props: ExportProgressProps) {
-  const cfg = () => props.config;
+  const [confirming, setConfirming] = createSignal(false);
+  const open = createMemo(() => props.open);
+  createEffect(on(open, () => setConfirming(false)));
+  let keepExporting: HTMLButtonElement | undefined;
 
-  const format = () => (cfg()?.format ?? "mp4").toUpperCase();
-  const fps = () => cfg()?.video?.fps ?? 30;
-  const videoCodec = () => cfg()?.video?.codec ?? "avc";
-  const audioCodec = () => cfg()?.audio?.codec ?? "aac";
-  const sampleRate = () =>
-    Math.round((cfg()?.audio?.sampleRate ?? 48000) / 1000);
-  const bitrate = () => {
-    const bps = cfg()?.video?.bitrate ?? 10e6;
-    return `${(bps / 1e6).toFixed(1)} Mbps`;
+  const confirmCancel = () => {
+    setConfirming(false);
+    props.onCancel();
+  };
+
+  const remaining = () => {
+    const r = props.remaining;
+    if (!r) return "Preparing…";
+    return r.minutes > 0
+      ? `~${r.minutes}m ${r.seconds}s remaining`
+      : `~${r.seconds}s remaining`;
   };
 
   return (
     <Show when={props.open}>
       <Portal>
-        <div class="fixed inset-0 z-50 bg-overlay-strong" />
-        <div class="fixed inset-0 z-50 flex items-center justify-center">
+        <div
+          class="cut-export-progress fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Export progress"
+        >
           <div class="flex w-full max-w-md flex-col items-center px-6">
-            <h4 class="text-lg">Exporting Composition</h4>
+            <p class="cut-export-progress-label">{props.audioOnly ? "Audio export" : "Video export"}</p>
+            <h4 class="text-[14px] mt-2">
+              {props.audioOnly ? "Exporting audio..." : "Exporting video..."}
+            </h4>
 
-            <div class="mt-4 flex w-full flex-col gap-2">
+            <div
+              role="progressbar"
+              aria-label={props.audioOnly ? "Audio export progress" : "Video export progress"}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={props.progress}
+              class="cut-export-progress-track mt-8 h-1.5 w-full overflow-hidden rounded-full"
+            >
               <div
-                class="grid w-full auto-cols-auto grid-flow-col grid-rows-4 gap-y-2 rounded-lg border border-foreground/10 bg-foreground/5 px-3 py-3 text-xs
-                  [&>div]:w-2 [&>p]:text-foreground [&>span]:text-muted-foreground"
-              >
-                <span>Duration</span>
-                <span>Resolution</span>
-                <span>Bitrate</span>
-                <span>Frame rate</span>
-
-                <p>{formatDuration(props.duration)}</p>
-                <p>
-                  {props.width} x {props.height}
-                </p>
-                <p>{bitrate()}</p>
-                <p>{fps()} FPS</p>
-
-                <div />
-                <div />
-                <div />
-                <div />
-
-                <span>Video Codec</span>
-                <span>Container</span>
-                <span>Audio Codec</span>
-                <span>Sample Rate</span>
-
-                <p>{videoCodec()}</p>
-                <p>{format()}</p>
-                <p>{audioCodec()}</p>
-                <p>{sampleRate()} KHz</p>
-              </div>
-
-              <div>
-                <div class="mt-2 mb-2 flex w-full justify-between text-sm">
-                  <p class="text-muted-foreground">Progress</p>
-                  <p>
-                    {props.progress}%
-                    <Show when={props.remaining}>
-                      {(r) => (
-                        <span>
-                          {" "}
-                          &middot; {r().minutes}min {r().seconds}s
-                        </span>
-                      )}
-                    </Show>
-                  </p>
-                </div>
-                <div class="relative h-2 w-full overflow-hidden rounded-full bg-foreground/20">
-                  <div
-                    class="h-full bg-foreground rounded-full transition-all"
-                    style={{ width: `${props.progress}%` }}
-                  />
-                </div>
-              </div>
+                class="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${props.progress}%` }}
+              />
+            </div>
+            <div class="cut-export-progress-meta mt-3 flex w-full justify-between">
+              <span>{remaining()}</span>
+              <span>{props.progress}%</span>
             </div>
 
             <Button
-              class="mt-6 border-foreground/15 bg-foreground/10 shadow-none gap-0.5 pl-1 pr-3"
-              onClick={props.onCancel}
+              variant="outline"
+              class="mt-8 px-3"
+              onClick={() => setConfirming(true)}
             >
-              <Icon name="spinner-loader" class="size-6 animate-spin" />
-              Cancel
+              Cancel export
             </Button>
           </div>
         </div>
       </Portal>
+
+      <AlertDialog open={confirming()} onOpenChange={setConfirming}>
+        <AlertDialogPortal>
+          <AlertDialogContent
+            class="cut-export-confirmation cut-export-cancel"
+            onOpenAutoFocus={(event: Event) => {
+              // The safe choice takes focus: Enter or Space keeps the export going.
+              event.preventDefault();
+              keepExporting?.focus();
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle class="text-[14px] font-medium">Stop exporting?</AlertDialogTitle>
+              <AlertDialogDescription class="text-[12px] leading-normal">
+                The export is still in progress. You'll need to start over if you stop now.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <Button ref={keepExporting} variant="outline" onClick={() => setConfirming(false)}>
+                Keep exporting
+              </Button>
+              <Button variant="destructive" onClick={confirmCancel}>
+                Stop export
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogPortal>
+      </AlertDialog>
     </Show>
+  );
+}
+
+/**
+ * The overlay bound to the one render slot in `context/render`: shown while
+ * any render (UI export or the agent's export tool) is in flight, and its
+ * confirmed cancel stops that render.
+ */
+export function RenderProgress() {
+  return (
+    <ExportProgress
+      open={!!renderOverlay()}
+      audioOnly={renderOverlay()?.audioOnly ?? false}
+      progress={renderOverlay()?.progress ?? 0}
+      remaining={renderOverlay()?.remaining}
+      onCancel={cancelRender}
+    />
   );
 }

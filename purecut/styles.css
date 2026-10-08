@@ -102,7 +102,8 @@
 
 /* Sheets and menus are the desk's popovers: soft edges, a real shadow. */
 :root[data-app="cut"] #cut-editor [data-slot="dialog-content"],
-:root[data-app="cut"] [data-slot="dialog-content"] {
+:root[data-app="cut"] [data-slot="dialog-content"],
+:root[data-app="cut"] [data-slot="alert-dialog-content"] {
   border-radius: 8px;
   border: 1px solid var(--pure-chrome-line, var(--border));
   box-shadow: 0 30px 80px rgba(16, 22, 42, 0.28);
@@ -176,7 +177,15 @@
 @layer utilities {
   [data-slot="dialog-content"].cut-source-review { min-width: 0 !important; width: min(1100px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; }
   [data-slot="dialog-content"].cut-export-confirmation { min-width: 0 !important; width: min(512px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; }
+  [data-slot="alert-dialog-content"].cut-export-confirmation { min-width: 0 !important; width: min(440px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px) !important; }
 }
+/* Export progress: the window turns to paper while the encode owns the
+   engine; labels and numbers speak in the desk's mono voice. */
+.cut-export-progress { background: var(--platform-colors-bg, var(--background)); color: var(--foreground); }
+.cut-export-progress-label,
+.cut-export-progress-meta { font-family: var(--platform-typography-font-family-mono, 'JetBrains Mono', ui-monospace, monospace); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--pure-chrome-muted, var(--muted-foreground)); }
+.cut-export-progress-label { text-transform: uppercase; font-size: 10px; }
+.cut-export-progress-track { background: color-mix(in srgb, var(--foreground) 12%, transparent); }
 .cut-export-row { display: flex; border-bottom: 1px solid var(--border); }
 .cut-export-row > button:first-child { flex: 1; min-width: 0; padding: 12px; display: grid; text-align: left; gap: 6px; overflow-wrap: anywhere; }
 .cut-export-row button[aria-pressed=true] { background: var(--accent); }
