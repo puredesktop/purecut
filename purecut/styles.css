@@ -228,3 +228,30 @@
 .cut-diff-gap { padding: 2px 12px; color: var(--muted-foreground); font-size: 11px; }
 .cut-source-review-full summary { cursor: pointer; font-size: 12px; color: var(--muted-foreground); }
 .cut-source-review-full[open] summary { margin-bottom: 8px; }
+
+/* The object mask and clip path bars float over the stage, above the tool
+   strip: the desk's opaque paper popover (as the floating inspectors are), a
+   hairline and a soft shadow, rather than upstream's dark pill. Status reads
+   as a note; sizes as measurements. */
+#cut-editor .cut-tool-bar {
+  --background: var(--pure-chrome-paper);
+  bottom: 52px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--glass-line, var(--pure-chrome-hairline));
+  background: var(--pure-chrome-paper);
+  box-shadow: 0 10px 30px rgba(16, 22, 42, 0.18);
+}
+#cut-editor .cut-tool-bar > * { flex-shrink: 0; }
+#cut-editor .cut-tool-bar button { border-radius: 5px; }
+#cut-editor .cut-tool-bar-note {
+  display: block;
+  max-width: min(360px, 50vw);
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted-foreground);
+  white-space: normal;
+}
+#cut-editor .cut-tool-bar-note.text-destructive { color: var(--destructive); }

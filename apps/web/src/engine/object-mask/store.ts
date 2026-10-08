@@ -162,13 +162,14 @@ export function setObjectMaskModel(id: Sam2ModelId): void {
 }
 
 /**
- * Where the last model asked for stands: downloading (`progress` 0 to 1),
- * compiling, ready, or failed. One model is loaded at a time, so this is
+ * Where the last model asked for stands: waiting for the person to agree to
+ * its download (`needs-download`, PureCut's), downloading (`progress` 0 to
+ * 1), compiling, ready, or failed. One model is loaded at a time, so this is
  * the one the page has, or is getting.
  */
 export type ObjectMaskModelLoad = {
 	id: Sam2ModelId;
-	phase: 'download' | 'compile' | 'ready' | 'error';
+	phase: 'needs-download' | 'download' | 'compile' | 'ready' | 'error';
 	progress: number | null;
 	error: string | null;
 };
@@ -177,6 +178,37 @@ const [objectMaskModelLoad, setObjectMaskModelLoad] = createSignal<ObjectMaskMod
 
 /** The model's load, reactive, for the tool's panel. */
 export { objectMaskModelLoad, setObjectMaskModelLoad };
+
+// ── Asking before the download (PureCut) ─────────────────────
+
+/**
+ * The models this page may fetch: the ones the person agreed to download, and
+ * the ones found whole in the cache already. PureCut fetches nothing without
+ * asking. The weights come from Hugging Face, tens to hundreds of megabytes,
+ * so the tool says which model, how large and from where, and waits for the
+ * person to agree. The answer is not stored: a model that finished
+ * downloading is in the cache, and needs no asking again.
+ */
+const allowedModels = new Set<Sam2ModelId>();
+
+export function allowObjectMaskModel(id: Sam2ModelId): void {
+	allowedModels.add(id);
+}
+
+export function isObjectMaskModelAllowed(id: Sam2ModelId): boolean {
+	return allowedModels.has(id);
+}
+
+/** A model the person has not agreed to fetch, and which is not in the cache. */
+export class ModelNotDownloadedError extends Error {
+	public readonly id: Sam2ModelId;
+
+	public constructor(id: Sam2ModelId, label: string) {
+		super(`${label} is not downloaded yet. Download it from the object mask tool first.`);
+		this.name = 'ModelNotDownloadedError';
+		this.id = id;
+	}
+}
 
 // ── The effect a mask is for ─────────────────────────────────
 

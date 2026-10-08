@@ -24,6 +24,7 @@ import { cx } from "@/lib/cva";
 import { useDerived, useObjectMaskTool } from "@/engine/hooks";
 import {
   cancelObjectMask,
+  downloadObjectMaskModel,
   getMaskRestore,
   getObjectTrack,
   heldObjectMaskOp,
@@ -112,12 +113,28 @@ export function ObjectMaskBar() {
     }
   };
 
+  // PureCut: until the model is on this computer the bar asks to fetch it,
+  // and says what goes wrong in words rather than only in a tooltip.
+  const blocked = () => {
+    const load = objectMaskModelLoad();
+    return load && load.id === objectMaskModel() && (load.phase === "needs-download" || load.phase === "error") ? load : null;
+  };
+
   return (
-    <div class="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 rounded-xl px-1.5 py-1 bg-background border border-border flex gap-1 items-center">
+    <div class="cut-tool-bar absolute bottom-16 left-1/2 -translate-x-1/2 z-10 rounded-xl px-1.5 py-1 bg-background border border-border flex gap-1 items-center">
       <ModelMenu disabled={busy()} />
       <Separator orientation="vertical" class="min-h-5" />
-      <ModePopover />
-      <OpMenu disabled={tool.mode() === "brush"} />
+      <Show
+        when={blocked()}
+        fallback={
+          <>
+            <ModePopover />
+            <OpMenu disabled={tool.mode() === "brush"} />
+          </>
+        }
+      >
+        {(load) => <ModelBlocked load={load()} />}
+      </Show>
       <Separator orientation="vertical" class="min-h-5" />
       <Tooltip>
         <TooltipTrigger as={Button} variant="ghost" class="text-muted-foreground" onClick={() => cancelObjectMask(world)}>
@@ -125,12 +142,48 @@ export function ObjectMaskBar() {
         </TooltipTrigger>
         <TooltipContent shortcut="Esc">Cancel</TooltipContent>
       </Tooltip>
-      <Tooltip>
-        <TooltipTrigger as={Button} disabled={state()?.status !== "seeded"} onClick={() => trackObjectMask(world)}>
-          {confirmLabel()}
-        </TooltipTrigger>
-        <TooltipContent shortcut="⌘↵"></TooltipContent>
-      </Tooltip>
+      {/* Nothing to confirm until the model is here (PureCut). */}
+      <Show when={!blocked()}>
+        <Tooltip>
+          <TooltipTrigger as={Button} disabled={state()?.status !== "seeded"} onClick={() => trackObjectMask(world)}>
+            {confirmLabel()}
+          </TooltipTrigger>
+          <TooltipContent shortcut="⌘↵"></TooltipContent>
+        </Tooltip>
+      </Show>
+    </div>
+  );
+}
+
+/**
+ * What stands between the tool and its model (PureCut): the download it asks
+ * for, with its size and source, or the reason the model could not load and,
+ * when trying again could help, the way to.
+ */
+function ModelBlocked(props: { load: ObjectMaskModelLoad }) {
+  const model = () => sam2Model(props.load.id);
+  const retry = () => props.load.phase === "error" && !/WebGPU/.test(props.load.error ?? "");
+
+  return (
+    <div class="cut-tool-bar-status flex items-center gap-2 pl-1">
+      <Show
+        when={props.load.phase === "needs-download"}
+        fallback={
+          <span role="alert" class="cut-tool-bar-note text-destructive">
+            {props.load.error ?? `${model().label} could not be loaded`}
+          </span>
+        }
+      >
+        <span class="cut-tool-bar-note">
+          Needs a one-time download from Hugging Face,{" "}
+          <span class="font-mono text-foreground">{formatSize(downloadSize(model()))}</span>, kept on this computer
+        </span>
+      </Show>
+      <Show when={props.load.phase === "needs-download" || retry()}>
+        <Button onClick={() => downloadObjectMaskModel(props.load.id)}>
+          {props.load.phase === "needs-download" ? "Download" : "Try again"}
+        </Button>
+      </Show>
     </div>
   );
 }
@@ -409,6 +462,8 @@ function describeModelLoad(load: ObjectMaskModelLoad): string {
       return load.progress === null ? `Downloading ${label}...` : `Downloading ${label}, ${Math.floor(load.progress * 100)}%`;
     case "compile":
       return `Preparing ${label}...`;
+    case "needs-download":
+      return `${label} is not downloaded yet`;
     case "error":
       return `${load.error ?? `${label} could not be loaded`}. Pick it again to retry.`;
     default:

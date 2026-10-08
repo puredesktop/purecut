@@ -5,7 +5,7 @@
 import { isProjectSource } from '@diffusionstudio/assets';
 import { FrameRate, Library, Tool, ToolType, getSourceWindow, getVideoTrack } from '@diffusionstudio/runtime';
 import { paintMask } from '@diffusionstudio/sam2/mask';
-import { sam2ModelOfRepo } from '@diffusionstudio/sam2/models';
+import { sam2Model, sam2ModelOfRepo } from '@diffusionstudio/sam2/models';
 import { toast } from 'somoto';
 
 import { getDocumentEditor } from '../editor';
@@ -13,8 +13,9 @@ import { commitObjectMask, encodeObjectMask } from './commit';
 import { maskFrame } from './frame';
 import { currentSourceFrame, getVideoRect } from './media';
 import {
-	clearObjectTrack, clearTargetEffect, finishMaskRestore, getMaskRestore, getObjectTrack, objectMaskModel, objectMaskModelLoad,
-	setMaskRestore, setObjectHover, setObjectMaskModel, setObjectMaskModelLoad, setObjectTrack,
+	ModelNotDownloadedError, allowObjectMaskModel, clearObjectTrack, clearTargetEffect, finishMaskRestore, getMaskRestore, getObjectTrack,
+	isObjectMaskModelAllowed, objectMaskModel, objectMaskModelLoad, setMaskRestore, setObjectHover, setObjectMaskModel,
+	setObjectMaskModelLoad, setObjectTrack,
 } from './store';
 
 import type { Entity, World } from 'koota';
@@ -423,18 +424,66 @@ export function pickObjectMaskModel(id: Sam2ModelId): void {
 }
 
 /**
+ * The person agreed to fetch model `id` (PureCut): it may download now, and
+ * does, so it is ready by the first click.
+ */
+export function downloadObjectMaskModel(id: Sam2ModelId = objectMaskModel()): void {
+	allowObjectMaskModel(id);
+	if (id !== objectMaskModel()) setObjectMaskModel(id);
+	preloadObjectMaskModel();
+}
+
+/**
+ * Why model `id` cannot load here, or null when it can (PureCut): the window
+ * has no WebGPU, or the model is neither in the cache nor agreed to. A model
+ * found whole in the cache counts as agreed to from then on.
+ */
+async function modelBlocker(id: Sam2ModelId): Promise<Error | null> {
+	if (!(await hasWebGpu())) return new Error('Object masks need WebGPU, which this window does not offer');
+	if (isObjectMaskModelAllowed(id)) return null;
+	const { cachedSam2Models } = await import('@diffusionstudio/sam2');
+	if ((await cachedSam2Models()).has(id)) {
+		allowObjectMaskModel(id);
+		return null;
+	}
+	return new ModelNotDownloadedError(id, sam2Model(id).label);
+}
+
+let webGpu: Promise<boolean> | null = null;
+
+/** Whether the window has a WebGPU adapter, asked once. */
+function hasWebGpu(): Promise<boolean> {
+	const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
+	webGpu ??= gpu ? gpu.requestAdapter().then((adapter) => adapter !== null, () => false) : Promise.resolve(false);
+	return webGpu;
+}
+
+/**
  * Model `id`, loaded once and shared by whoever asks, with its load on
  * `objectMaskModelLoad`; `onDownload` hears its download, 0 to 1.
  */
 async function loadModel(id: Sam2ModelId, onDownload?: (progress: number | null) => void): Promise<Sam2Video> {
-	const current = objectMaskModelLoad();
-	if (current?.id !== id || current.phase === 'error') {
-		setObjectMaskModelLoad({ id, phase: 'download', progress: null, error: null });
-	}
 	// Another model asked for since takes the panel over.
 	const update = (next: Omit<ObjectMaskModelLoad, 'id'>) => {
 		if (objectMaskModelLoad()?.id === id) setObjectMaskModelLoad({ id, ...next });
 	};
+
+	// PureCut: nothing is fetched until the person agrees, and nothing loads without WebGPU.
+	const blocker = await modelBlocker(id);
+	if (blocker) {
+		// The panel shows the tool's own model; a restore by another one does not take it over.
+		if (id === objectMaskModel()) {
+			setObjectMaskModelLoad(blocker instanceof ModelNotDownloadedError
+				? { id, phase: 'needs-download', progress: null, error: null }
+				: { id, phase: 'error', progress: null, error: blocker.message });
+		}
+		throw blocker;
+	}
+
+	const current = objectMaskModelLoad();
+	if (current?.id !== id || current.phase === 'error' || current.phase === 'needs-download') {
+		setObjectMaskModelLoad({ id, phase: 'download', progress: null, error: null });
+	}
 
 	try {
 		const { loadSam2 } = await import('@diffusionstudio/sam2');
@@ -453,10 +502,23 @@ async function loadModel(id: Sam2ModelId, onDownload?: (progress: number | null)
 	} catch (error) {
 		// A cancelled load gave way to another model, which has the panel now.
 		if (!(error instanceof DOMException && error.name === 'AbortError')) {
-			update({ phase: 'error', progress: null, error: error instanceof Error ? error.message : String(error) });
+			update({ phase: 'error', progress: null, error: describeLoadError(id, error) });
 		}
 		throw error;
 	}
+}
+
+/**
+ * What went wrong with a model's load, said for the person (PureCut): a
+ * failed fetch is most likely no connection, and the files that arrived whole
+ * are kept, so trying again picks up where it stopped.
+ */
+function describeLoadError(id: Sam2ModelId, error: unknown): string {
+	const message = error instanceof Error ? error.message : String(error);
+	if (error instanceof TypeError && /fetch|network/i.test(message)) {
+		return `${sam2Model(id).label} could not be downloaded from Hugging Face. Check the connection and try again`;
+	}
+	return message;
 }
 
 /** Runs `step` for `track` once the model is free, and files whatever goes wrong on the track. */
@@ -473,6 +535,11 @@ function enqueue(world: World, track: ObjectTrack, step: (session: Session) => P
 			await step(session);
 		} catch (error) {
 			if (signal.aborted) return;
+			// The tool's bar is asking to download the model; a click before that is no failure.
+			if (error instanceof ModelNotDownloadedError) {
+				if (getObjectTrack() === track) clearObjectTrack();
+				return;
+			}
 			track.status = 'error';
 			track.error = error instanceof Error ? error.message : String(error);
 			toast.error('Object mask failed', { description: track.error });

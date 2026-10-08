@@ -33,7 +33,7 @@ export function ClipPathBar() {
   return (
     <Show when={target()}>
       {(node) => (
-        <div class="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 rounded-xl px-1.5 py-1 bg-background border border-border flex gap-1 items-center">
+        <div class="cut-tool-bar absolute bottom-16 left-1/2 -translate-x-1/2 z-10 rounded-xl px-1.5 py-1 bg-background border border-border flex gap-1 items-center">
           <span class="px-2 text-xs text-muted-foreground whitespace-nowrap">
             {picks().length === 0
               ? "Pick a shape to use as the clipping source"
