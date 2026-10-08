@@ -200,6 +200,30 @@ const cases = {
     assert.match(source, /<effect id="[^"]+" type="opacity" value=\{1\}>\s*<mask id="[^"]+" src="masks\/clip\/Tracking 1\.mask" sourceIn=\{1\.5\} \/>\s*<\/effect>/, source);
     assert.match(source, /<videoPaint src="clip\.mp4" \/>/, source);
   },
+  async 'writes a text behind a subject and a privacy pixelation, and takes them off'() {
+    const { files, context } = project(`export default () => <scene id="s"><rect id="clip" width={640} height={360}><videoPaint src="clip.mp4" /></rect><text id="t">Title</text></scene>;\n`);
+    let result = await applyEdits(context, [
+      { kind: 'insert', source: 'pending#1', parent: `${FILE}:t`, tag: 'effect', props: { type: 'opacity', value: 1 } },
+      { kind: 'insert', source: 'pending#2', parent: 'pending#1', tag: 'mask', props: { src: 'masks/clip/Tracking 1.mask', sourceIn: 0.5, follow: 'clip', inverted: true } },
+      { kind: 'insert', source: 'pending#3', parent: `${FILE}:clip`, tag: 'effect', props: { type: 'pixelate', value: 24 } },
+      { kind: 'insert', source: 'pending#4', parent: 'pending#3', tag: 'mask', props: { src: 'masks/clip/Tracking 2.mask' } },
+    ]);
+    assert.deepEqual(result.skipped, []);
+    let source = files.get(FILE);
+    assert.match(source, /<text id="t">Title<effect id="[^"]+" type="opacity" value=\{1\}>\s*<mask id="[^"]+" src="masks\/clip\/Tracking 1\.mask" sourceIn=\{0\.5\} follow="clip" inverted \/>\s*<\/effect>\s*<\/text>|<text id="t">\s*Title\s*<effect id="[^"]+" type="opacity" value=\{1\}>\s*<mask id="[^"]+" src="masks\/clip\/Tracking 1\.mask" sourceIn=\{0\.5\} follow="clip" inverted \/>\s*<\/effect>\s*<\/text>/, source);
+    assert.match(source, /<effect id="[^"]+" type="pixelate" value=\{24\}>\s*<mask id="[^"]+" src="masks\/clip\/Tracking 2\.mask" \/>\s*<\/effect>/, source);
+    // Another subject, then off.
+    const mask = /<mask id="([^"]+)" src="masks\/clip\/Tracking 1\.mask"/.exec(source)[1];
+    const effect = /<effect id="([^"]+)" type="opacity"/.exec(source)[1];
+    result = await applyEdits(context, [{ kind: 'set', source: `${FILE}:${mask}`, props: { src: 'masks/clip/Tracking 2.mask', sourceIn: false, follow: 'clip' } }]);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(files.get(FILE).includes(`<mask id="${mask}" src="masks/clip/Tracking 2.mask" follow="clip" inverted />`), files.get(FILE));
+    result = await applyEdits(context, [{ kind: 'remove', source: `${FILE}:${effect}` }]);
+    assert.deepEqual(result.skipped, []);
+    source = files.get(FILE);
+    assert.ok(!source.includes('follow='), source);
+    assert.match(source, /<text id="t">\s*Title\s*<\/text>/, source);
+  },
   async 'sets, clears and removes mask props'() {
     const { files, context } = project(`export default () => <scene id="s"><rect id="r"><effect id="e" type="blur" value={8}><mask id="m" src="masks/a/Tracking 1.mask" /></effect></rect></scene>;\n`);
     let result = await applyEdits(context, [{ kind: 'set', source: `${FILE}:m`, props: { inverted: true, smoothing: 0.5, blur: 4, opacity: 0.8 } }]);

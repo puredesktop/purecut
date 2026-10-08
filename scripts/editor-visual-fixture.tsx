@@ -40,9 +40,12 @@ module.exports.default = () => Stage({ __source: 'visual-stage', get children() 
 }});`;
 
 export let readFixtureCamera: () => number[];
+/** The fixture editor's world, for fixtures that stage more on it (see mask-uses-visual-fixture.tsx). */
+export let fixtureWorld: ReturnType<typeof useWorld> | undefined;
 export let prepareTrimFixture: (frame: number) => void;
 function CameraProbe() {
   const world = useWorld();
+  fixtureWorld = world;
   readFixtureCamera = () => [...getCameraMatrix(world)];
   prepareTrimFixture = frame => {
     for (const entity of world.query(Selected)) entity.remove(Selected);
