@@ -64,7 +64,7 @@ Both read the same cached transcript: two `<captions>` in one scene do not trans
 | `"classic"` (default) | Simple one word captions, first choice for vertical content | none |
 | `"whisper"` | Small, wide, understated line shown in ~2 s phrases, first choice for landscape content | none |
 | `"cascade"` | Light text in the lower left; words appear progressively as they are spoken | none |
-| `"spotlight"` | Bold italic centered line; the spoken word lights up in the highlight color | 1: highlight (`#24D5FF`) |
+| `"spotlight"` | Bold italic centered line; the spoken word lights up in the highlight color | 1: highlight (`#19FF75`) |
 | `"paper"` | Centered two-line block; the line being spoken is emphasized with a heavier weight. | none |
 | `"guinea"` | Uppercase display text; the spoken word enlarges and cycles through the three colors. | 3: `#F55353`, `#FEB139`, `#F6F54D` |
 | `"stark"` | Heavy uppercase text blended into the footage with a difference blend. | none |

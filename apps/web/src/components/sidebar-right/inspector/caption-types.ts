@@ -31,7 +31,7 @@ export const CAPTION_PRESET_OPTIONS: CaptionPresetOption[] = [
   {
     name: "spotlight",
     label: "Spotlight",
-    slots: [{ label: "Highlight", defaultColor: 0x24D5FF }],
+    slots: [{ label: "Highlight", defaultColor: 0x19FF75 }],
   },
   { name: "whisper", label: "Whisper", slots: [] },
   { name: "paper", label: "Paper", slots: [] },
