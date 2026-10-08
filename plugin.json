@@ -57,7 +57,8 @@
                     },
                     "text": {
                       "type": "string",
-                      "maxLength": 20000
+                      "maxLength": 20000,
+                      "description": "The words a text element says, replacing its current words. Not for styling: to recolour a text use props.fill."
                     },
                     "props": {
                       "type": "object",
@@ -85,7 +86,8 @@
                           "type": "number"
                         },
                         "fill": {
-                          "type": "string"
+                          "type": "string",
+                          "description": "Hex colour such as #DF2626. On a text this is the colour the glyphs are seen in: it recolours the text's visible solid paint (or its own fill when it has none). Never put a colour in `text`; `text` is only what the element says."
                         },
                         "start": {
                           "type": "number"

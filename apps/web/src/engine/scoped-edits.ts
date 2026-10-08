@@ -1,8 +1,9 @@
-import { Source, isText } from '@diffusionstudio/runtime';
+import { Source, isCaption, isText } from '@diffusionstudio/runtime';
 import { authoredElement } from '@diffusionstudio/reconciler';
 import { getDocumentEditor, isLooped } from './editor';
 import { getEditHistory } from './history';
 import { containsLocked } from './locking';
+import { textColourTarget } from './text-colour';
 import { validateScopedEdits } from '../../../../purecut/lib/scoped-edits';
 import type { World } from 'koota';
 
@@ -19,6 +20,12 @@ export function applyScopedEdits(world: World, input: unknown): void {
     if (containsLocked(world, entity)) throw Error(`Element is locked: ${edit.source}`);
     if (edit.text !== undefined && !isText(entity)) throw Error('Text changes require a text element.');
     if (edit.props.fontSize !== undefined && !isText(entity)) throw Error('Font size requires a text element.');
+    if (edit.props.fill !== undefined && isText(entity) && !isCaption(entity)) {
+      // The paint a text is seen in is written like any element: directly authored.
+      const paint = textColourTarget(world, entity).entity;
+      if (paint !== entity && (!authoredElement(paint) || isLooped(paint)))
+        throw Error('Text colour requires a directly authored paint.');
+    }
     if (edit.props.start !== undefined || edit.props.end !== undefined) {
       const start = edit.props.start ?? authored.props.start ?? 0;
       const end = edit.props.end ?? authored.props.end;
@@ -32,7 +39,14 @@ export function applyScopedEdits(world: World, input: unknown): void {
   history.beginGesture();
   try {
     for (const { entity, edit } of targets) {
-      for (const [name, value] of Object.entries(edit.props)) editor.editProperty(entity, name, value);
+      for (const [name, value] of Object.entries(edit.props)) {
+        // `fill` on a text is the colour it is seen in, wherever that lives
+        // (see textColourTarget); the review ran the same rule over source.
+        if (name === 'fill' && isText(entity) && !isCaption(entity)) {
+          const target = textColourTarget(world, entity);
+          editor.editProperty(target.entity, target.name, value);
+        } else editor.editProperty(entity, name, value);
+      }
       if (edit.text !== undefined) editor.editText(entity, edit.text);
     }
   } finally { history.endGesture(); }

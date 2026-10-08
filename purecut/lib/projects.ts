@@ -179,12 +179,19 @@ export class ProjectService {
           return { ok: true, code: cached, sourceHash: old.hash };
         }
       }
-      const { compile, stampProject, applyEdits } = await import('../compiler-runtime.js');
+      const { compile, stampProject, applyEdits, retargetTextColours } = await import('../compiler-runtime.js');
       let result: any;
       if (channel === "purecut:prepare-edits") {
         if (old.hash !== d.baseHash) throw Error("Project changed. Read the current source before editing again.");
-        const edits = validateScopedEdits(d.edits).map(edit => ({ ...edit, kind: "set" as const }));
-        result = await applyEdits(this.context(dir, source), edits);
+        const context = this.context(dir, source);
+        // `fill` on a text is the colour it is seen in: the same rule
+        // applyScopedEdits follows on the live document, so the review shows
+        // exactly what apply will write.
+        const edits = await retargetTextColours(
+          context.io,
+          validateScopedEdits(d.edits).map(edit => ({ ...edit, kind: "set" as const })),
+        );
+        result = await applyEdits(context, edits);
         if (result.error) throw Error(result.error);
       }
       if (channel === "purecut:replace" || channel === "purecut:prepare") {

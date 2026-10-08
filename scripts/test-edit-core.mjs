@@ -1,6 +1,9 @@
 // Node checks for purecut/editor-core/edit-core.ts against an in-memory project.
 // Covers text edits (upstream diffusionstudio/editor ae33eab): a text edit
-// replaces only what an element says and keeps its paint, strokes and comments.
+// replaces only what an element says and keeps its paint, strokes and comments;
+// prop writes over expressions (upstream a0f843f); and a text's `fill` going to
+// the colour it is seen in (purecut/editor-core/text-colour.ts), as the review
+// of a proposeCutEdits proposal writes it.
 import { build } from 'esbuild';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -21,6 +24,17 @@ await build({
   logLevel: 'error',
 });
 const { applyEdits } = await import(pathToFileURL(resolve(bundle)).href);
+const colourBundle = join(out, 'text-colour.mjs');
+await build({
+  entryPoints: ['purecut/editor-core/text-colour.ts'],
+  outfile: colourBundle,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  external: ['ts-morph'],
+  logLevel: 'error',
+});
+const { retargetTextColours } = await import(pathToFileURL(resolve(colourBundle)).href);
 
 const FILE = 'index.tsx';
 function project(source) {
@@ -78,6 +92,77 @@ const cases = {
     const result = await applyEdits(context, [{ kind: 'set', source: `${FILE}:t`, props: {}, text: 'Hi' }]);
     assert.deepEqual(result.skipped, []);
     assert.match(files.get(FILE), /<text id="t">Hi<solidPaint color="#000000" \/><\/text>/);
+  },
+  // Upstream a0f843f: the canvas shows an edit before the file has it, and an
+  // export and the next open render the file, so an edit the write left out
+  // would move back. The user wins: a prop is written over a literal and over
+  // an expression alike.
+  async 'writes a prop over a literal and over an expression alike'() {
+    const { files, context } = project(
+      `const X = 100;\nexport default () => <video id="clip" x={X} y={20} rotation={ticker() * 2} />;\n`,
+    );
+    const result = await applyEdits(context, [
+      { kind: 'set', source: `${FILE}:clip`, props: { x: 555, y: 42, rotation: 90 } },
+    ]);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(files.get(FILE).includes(`<video id="clip" x={555} y={42} rotation={90} />`), files.get(FILE));
+    // The constant is someone else's too, and stays.
+    assert.ok(files.get(FILE).includes(`const X = 100;`), files.get(FILE));
+  },
+  // A text's colour is the colour you see: `fill` on a text lands on its
+  // topmost visible solid paint, or on its own fill/color without one. The
+  // prepare path of proposeCutEdits runs exactly this (retarget, then apply).
+  async 'recolours the solid paint a T-tool-style text is seen in'() {
+    const { files, context } = project(
+      `export default () => <scene id="s"><text id="t" x={10}>Text<solidPaint id="p" color="#FFFFFF" /></text></scene>;\n`,
+    );
+    const edits = await retargetTextColours(context.io, [{ kind: 'set', source: `${FILE}:t`, props: { fill: '#FF0000' } }]);
+    assert.deepEqual(edits, [{ kind: 'set', source: `${FILE}:p`, props: { color: '#FF0000' } }]);
+    const result = await applyEdits(context, edits);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(files.get(FILE).includes('<text id="t" x={10}>Text<solidPaint id="p" color="#FF0000" /></text>'), files.get(FILE));
+  },
+  async 'keeps the other props and the words on the text while the paint takes the colour'() {
+    const { files, context } = project(
+      `export default () => <scene id="s"><text id="t" x={10}>Text<solidPaint id="p" color="#FFFFFF" /></text></scene>;\n`,
+    );
+    const edits = await retargetTextColours(context.io, [
+      { kind: 'set', source: `${FILE}:t`, props: { x: 20, fill: '#FF0000' }, text: 'Hello' },
+    ]);
+    assert.deepEqual(edits, [
+      { kind: 'set', source: `${FILE}:t`, props: { x: 20 }, text: 'Hello' },
+      { kind: 'set', source: `${FILE}:p`, props: { color: '#FF0000' } },
+    ]);
+    await applyEdits(context, edits);
+    assert.ok(files.get(FILE).includes('<text id="t" x={20}>Hello<solidPaint id="p" color="#FF0000" /></text>'), files.get(FILE));
+  },
+  async 'passes over a hidden paint to the topmost visible one'() {
+    const { files, context } = project(
+      `export default () => <text id="t">Hi<solidPaint id="a" color="#000000" /><solidPaint id="b" color="#00FF00" hidden /><linearGradientPaint id="g" hidden /></text>;\n`,
+    );
+    const edits = await retargetTextColours(context.io, [{ kind: 'set', source: `${FILE}:t`, props: { fill: '#FF0000' } }]);
+    assert.deepEqual(edits, [{ kind: 'set', source: `${FILE}:a`, props: { color: '#FF0000' } }]);
+    await applyEdits(context, edits);
+    assert.ok(files.get(FILE).includes('<solidPaint id="a" color="#FF0000" /><solidPaint id="b" color="#00FF00" hidden />'), files.get(FILE));
+  },
+  async 'writes the own fill of a text no paint covers'() {
+    const { files, context } = project(`export default () => <text id="t" fill="#ffffff">Hi</text>;\n`);
+    const edits = await retargetTextColours(context.io, [{ kind: 'set', source: `${FILE}:t`, props: { fill: '#FF0000' } }]);
+    assert.deepEqual(edits, [{ kind: 'set', source: `${FILE}:t`, props: { fill: '#FF0000' } }]);
+    await applyEdits(context, edits);
+    assert.ok(files.get(FILE).includes('<text id="t" fill="#FF0000">Hi</text>'), files.get(FILE));
+  },
+  async 'writes color, not a second fill, on a text that spells its colour as color'() {
+    const { files, context } = project(`export default () => <text id="t" color="#FFFFFF">Text</text>;\n`);
+    const edits = await retargetTextColours(context.io, [{ kind: 'set', source: `${FILE}:t`, props: { fill: '#FF0000' } }]);
+    assert.deepEqual(edits, [{ kind: 'set', source: `${FILE}:t`, props: { color: '#FF0000' } }]);
+    await applyEdits(context, edits);
+    assert.ok(files.get(FILE).includes('<text id="t" color="#FF0000">Text</text>'), files.get(FILE));
+  },
+  async 'leaves fill on anything but a text alone'() {
+    const { context } = project(`export default () => <rect id="r" fill="#000000"><solidPaint id="p" color="#FFFFFF" /></rect>;\n`);
+    const edits = [{ kind: 'set', source: `${FILE}:r`, props: { fill: '#FF0000' } }];
+    assert.deepEqual(await retargetTextColours(context.io, edits), edits);
   },
 };
 
