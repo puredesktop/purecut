@@ -34,6 +34,7 @@ import { CaptionSettings } from "./caption-settings";
 import { TextPanel } from "./text";
 import { FillsSettings } from "./fills";
 import { SourceSettings } from "./source";
+import { TextColorSettings } from "./text-color";
 import { StrokesSettings } from "./strokes";
 import { ShadowsSettings } from "./shadows";
 import { EffectsSettings } from "./effects";
@@ -159,6 +160,10 @@ export function Inspector() {
 
           <Show when={includesTarget("text", "caption")}>
             <TextPanel selection={nodes()} />
+          </Show>
+
+          <Show when={includesTarget("text")}>
+            <TextColorSettings selection={nodes()} />
           </Show>
 
           <Show when={includesTarget("shape", "text", "scene")}>

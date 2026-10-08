@@ -97,6 +97,7 @@ try {
       const { ProjectService } = await import("/purecut/lib/projects.ts");
       await (await import('/scripts/browser-compile-cache-check.ts')).checkCompileCache();
       await (await import('/scripts/browser-scoped-edits-check.ts')).checkScopedEdits();
+      await (await import('/scripts/browser-text-colour-check.tsx')).checkTextColours();
       await (await import('/scripts/browser-writer-disposal-check.ts')).checkWriterDisposal();
       await (await import('/scripts/browser-source-change-check.ts')).checkSourceChanges();
       await (await import('/scripts/browser-source-review-check.tsx')).checkSourceReview();

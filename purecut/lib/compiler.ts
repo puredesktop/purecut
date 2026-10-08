@@ -6,6 +6,7 @@ import {
   inspectPlugin,
 } from "../editor-core/source";
 export { applyEdits, stampProject } from "../editor-core/edit-core";
+export { retargetTextColours } from "../editor-core/text-colour";
 export function compile(source: string) {
   try {
     const result = Babel.transform(source, {

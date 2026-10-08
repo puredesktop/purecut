@@ -157,7 +157,9 @@ export function SourceSettings(props: SourceSettingsProps) {
 
         <Show when={hasFill()}>
           <SolidFillRow
-            node={entity()}
+            target={{ entity: entity(), name: "fill" }}
+            label="Solid"
+            removable
             anchorRef={anchorRef}
             picking={picking() === "solid"}
             onPickingChange={(open) => setPicking(open ? "solid" : undefined)}
@@ -199,36 +201,42 @@ export function SourceSettings(props: SourceSettingsProps) {
 }
 
 type SolidFillRowProps = {
-  node: Entity;
+  /** The element and prop the colour is written to. */
+  target: { entity: Entity; name: string };
+  label: string;
+  /** Whether the X takes the prop off (an intrinsic `fill` can go; a text's colour cannot). */
+  removable?: boolean;
   anchorRef: HTMLElement;
   picking: boolean;
   onPickingChange(open: boolean): void;
 };
 
 /**
- * The node's intrinsic solid: the `fill` prop, edited in place as a hex the
- * way a solid fill row edits its color, or through the picker the swatch
- * opens — both are `fill` prop writes, the node keeps its identity. Read
- * from `Computed.color` so it animates (the `color` keyframe track drives
- * the same trait); alpha is not offered because the prop ignores it. The X
- * takes the prop off the node.
+ * One solid colour, edited in place as a hex the way a solid fill row edits
+ * its color, or through the picker the swatch opens — both are writes of
+ * `target`'s prop, the element keeps its identity. Here that is the node's
+ * intrinsic solid (the `fill` prop); a text's colour row (see
+ * `TextColorSettings`) points it at wherever the text's visible colour lives.
+ * Read from `Computed.color` so it animates (the `color` keyframe track drives
+ * the same trait); alpha is not offered because the intrinsic prop ignores
+ * it. The X, when offered, takes the prop off the element.
  */
-function SolidFillRow(props: SolidFillRowProps) {
+export function SolidFillRow(props: SolidFillRowProps) {
   const world = useWorld();
   const editor = useEditor();
 
-  const color = useDerived(() => props.node.get(Computed)?.color ?? 0xE0E0E0);
+  const color = useDerived(() => props.target.entity.get(Computed)?.color ?? 0xE0E0E0);
   const colorText = createMemo(() => colorToHex(color()).replace("#", ""));
 
   const updateColor = (next: number) => {
     const hex = colorToHex(next);
-    editor.editProperty(props.node, "fill", hex);
-    syncKeyframe(world, editor, props.node, "color", hex);
+    editor.editProperty(props.target.entity, props.target.name, hex);
+    syncKeyframe(world, editor, props.target.entity, "color", hex);
   };
 
   const handleRemoveFill = () => {
     props.onPickingChange(false);
-    editor.editProperty(props.node, "fill", false);
+    editor.editProperty(props.target.entity, props.target.name, false);
   };
 
   const [draft, setDraft] = createSignal(colorText());
@@ -244,7 +252,7 @@ function SolidFillRow(props: SolidFillRowProps) {
       setDraft(colorText());
       return;
     }
-    editor.editProperty(props.node, "fill", colorToHex(next));
+    editor.editProperty(props.target.entity, props.target.name, colorToHex(next));
   };
 
   const handleKeyDown = (event: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
@@ -274,7 +282,7 @@ function SolidFillRow(props: SolidFillRowProps) {
   };
 
   return (
-    <ControlRow label="Solid">
+    <ControlRow label={props.label}>
       <div class="flex h-7 w-full items-center overflow-hidden rounded-md border border-transparent bg-input text-foreground focus-within:border-primary">
         <div class="flex h-full min-w-0 flex-1 items-center gap-2 pl-1">
           <button
@@ -292,24 +300,26 @@ function SolidFillRow(props: SolidFillRowProps) {
             onBlur={handleBlur}
           />
         </div>
-        <Tooltip>
-          <TooltipTrigger
-            as={Button}
-            size="icon"
-            variant="ghost"
-            class="text-muted-foreground"
-            onClick={handleRemoveFill}
-          >
-            <Icon name="close-remove-small" />
-          </TooltipTrigger>
-          <TooltipContent>Remove fill</TooltipContent>
-        </Tooltip>
+        <Show when={props.removable}>
+          <Tooltip>
+            <TooltipTrigger
+              as={Button}
+              size="icon"
+              variant="ghost"
+              class="text-muted-foreground"
+              onClick={handleRemoveFill}
+            >
+              <Icon name="close-remove-small" />
+            </TooltipTrigger>
+            <TooltipContent>Remove fill</TooltipContent>
+          </Tooltip>
+        </Show>
       </div>
 
       <Show when={props.picking}>
         <FloatingInspector open anchorRef={props.anchorRef}>
           <FloatingInspectorHeader>
-            <FloatingInspectorTitle>Solid</FloatingInspectorTitle>
+            <FloatingInspectorTitle>{props.label}</FloatingInspectorTitle>
             <div class="ml-auto flex items-center gap-1">
               <Tooltip>
                 <TooltipTrigger
@@ -331,7 +341,7 @@ function SolidFillRow(props: SolidFillRowProps) {
               opacity={1}
               onColorChange={updateColor}
               withoutOpacity
-              keyframeTarget={props.node}
+              keyframeTarget={props.target.entity}
             />
           </FloatingInspectorContent>
         </FloatingInspector>
