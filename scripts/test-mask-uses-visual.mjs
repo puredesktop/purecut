@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 
-const port = Number(process.env.PURECUT_VISUAL_PORT || 5565);
+const port = Number(process.env.PURECUT_VISUAL_PORT || 5566);
 const output = process.env.PURECUT_SCREENSHOTS || '/tmp/purecut-visual/mask-uses';
 const server = spawn(process.execPath, ['scripts/purecut-dev.mjs', '--port', String(port)], { stdio: 'pipe' });
 let log = '', browser;
