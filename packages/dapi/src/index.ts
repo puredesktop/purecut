@@ -32,7 +32,7 @@ export { FONT_LIMIT } from "./tools/fonts";
 // Named request and result types, for handlers that spell out their
 // signature. Each is the parsed (output) side of the tool's schema.
 import type { ImageRef as ImageRefSchema, LogEntry as LogEntrySchema, LogLevel as LogLevelSchema, TimecodedImage as TimecodedImageSchema } from "./schemas";
-import type { GenerationRow as GenerationRowType } from "./tools/context";
+import type { GenerationRow as GenerationRowType, ObjectMaskRow as ObjectMaskRowType } from "./tools/context";
 import type { CheckIssue as CheckIssueSchema, CheckIssueCode as CheckIssueCodeSchema } from "./tools/check";
 import type { ExportFormat as ExportFormatSchema, ExportSettings as ExportSettingsSchema } from "./tools/export";
 import type { ModelInfo as ModelInfoSchema } from "./tools/models";
@@ -47,6 +47,7 @@ export type LogEntry = z.output<typeof LogEntrySchema>;
 export type TimecodedImage = z.output<typeof TimecodedImageSchema>;
 export type ImageRef = z.output<typeof ImageRefSchema>;
 export type GenerationRow = GenerationRowType;
+export type ObjectMaskRow = ObjectMaskRowType;
 export type CheckIssueCode = z.output<typeof CheckIssueCodeSchema>;
 export type CheckIssue = z.output<typeof CheckIssueSchema>;
 export type ExportFormat = z.output<typeof ExportFormatSchema>;

@@ -35,6 +35,37 @@ A project exports a Solid component returning `<stage><scene active width={1280}
 
 - `<rect clipPath>` inside a node clips that node to the rect's box. Several clip paths intersect. A clip path is never drawn, and it keeps its own transform and timing, so a keyframed clip path makes a wipe. The old spelling `<rect mask>` still works; write `clipPath`.
 - `<mask src="masks/<video>/Tracking 1.mask" />` inside an `<effect>` limits that effect to a tracked object. Under `<effect type="opacity" value={1}>` it is a cut-out: the clip shows only inside the mask. Under another effect, such as `blur`, the effect applies only inside the mask; `inverted` flips that. Other props: `sourceIn` (the clip's source time of the mask's first frame), `blur` (feather in px), `opacity` (strength 0–1), `smoothing` (0–1, default 0.25) and `hidden`.
-- Mask files come only from the user's **Object mask** tool (M). It tracks an object in a video clip on this computer, with a SAM 2.1 model the user downloads once. You cannot create or track masks. Use only `.mask` paths that already appear in the project, and never point a mask at another file type. To mask a new object, ask the user to use the tool.
+- Mask files come only from the user's **Object mask** tool (M). It tracks an object in a video clip on this computer, with a SAM 2.1 model the user downloads once. You cannot create or track masks, and you never run a model. Use only `.mask` paths that already appear in the project or in `getCutContext`'s `objectMasks`, and never point a mask at another file type. To mask a new object, ask the user to pick the Object mask tool, click the person or object in the video, and Confirm; then read the context again.
+- `objectMasks` in `getCutContext` lists every tracked mask: `path` (the `src`), `video` (the footage it was tracked on), `sourceIn` (write it as the mask's `sourceIn` when it is above 0) and `clips` (the source stamps, `index.tsx:<id>`, of the clips playing that footage).
+
+#### Privacy blur
+
+To hide a face, a plate or a screen for a whole clip, give the clip a `blur` or `pixelate` effect holding the object's mask. `value` is the strength in px of the clip: blur radius (24 is a good start) or block size (24). Only the masked object changes, in the preview and the export alike.
+
+```tsx
+<rect id="street" …><videoPaint src="footage/street.mp4" />
+  <effect type="pixelate" value={24}>
+    <mask src="masks/street/Tracking 1.mask" />
+  </effect>
+</rect>
+```
+
+Adding one is structural: use `proposeCutSource`. To change the strength of an existing one, `proposeCutEdits` with `{source: "index.tsx:<effect id>", props: {value: 32}}`; a mask's feather is `props.blur`. `inverted` on the mask blurs everything except the object. The same mask can be both a privacy effect and a cut-out; do not remove the clip's `opacity` cut-out unless asked.
+
+#### Text behind a subject
+
+To put a text (or any layer) behind a tracked person or object, so they stand in front of it for the whole shot, give the text an `opacity` effect holding an inverted mask that **follows** the clip the subject is in:
+
+```tsx
+<text id="title" …>BIG IDEAS
+  <effect type="opacity" value={1}>
+    <mask src="masks/talk/Tracking 1.mask" follow="talk" inverted />
+  </effect>
+</text>
+```
+
+- `follow` is the clip's `id` (from `objectMasks[].clips`, without `index.tsx:`); the mask is placed in that clip's box and timed by its footage, so the text needs no matching position or timing. The text must be above the clip (later in the scene) and overlap it in time; the subject shows through from the clip, so the clip must not itself be cut out to that subject (an `opacity` effect on the clip holding the same mask). If it is, say so and propose removing that cut-out.
+- Turning it off is removing that effect. Use `proposeCutSource` for both; the user's inspector does the same in one undo step (the text's **Behind subject** section).
+- When no mask of the subject exists, do not invent one: ask the user to track the subject with the Object mask tool (M) first, or to pick **Use as: Behind text** in the tool's bar, which does both at once.
 
 Use `checkCut({id})` to check a scene for composition issues; it is not a visual review. Call `exportCut({id})` only when requested, using a scene id from current JSX. Export does not prove recognition accuracy or the quality of speech cuts; review playback when judging those.

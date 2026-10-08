@@ -262,6 +262,12 @@ Object.assign(cases, {
       assert.equal(validateScopedEdits([{ source: `${FILE}:t`, text }])[0].text, text);
     assert.deepEqual(validateScopedEdits([{ source: `${FILE}:t`, props: { fill: '#DF2626' } }])[0].props, { fill: '#DF2626' });
   },
+  async 'tunes a privacy effect: its value and a mask feather, in range'() {
+    assert.deepEqual(validateScopedEdits([{ source: `${FILE}:fx`, props: { value: 32 } }, { source: `${FILE}:m`, props: { blur: 6, opacity: 0.9 } }])
+      .map((edit) => edit.props), [{ value: 32 }, { blur: 6, opacity: 0.9 }]);
+    for (const props of [{ value: 5000 }, { value: '32' }, { blur: -1 }, { follow: 'clip' }, { inverted: true }])
+      assert.throws(() => validateScopedEdits([{ source: `${FILE}:fx`, props }]), /Unsupported/, JSON.stringify(props));
+  },
 });
 
 let failed = 0;

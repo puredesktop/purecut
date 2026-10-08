@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { AssetId, Computed, Fonts, FrameRate, Generating, getActiveEntity, Library, Name, PendingSource, Source, SourceError } from "@diffusionstudio/runtime";
+import { AssetId, Computed, findGeometryAsset, Fonts, FrameRate, Generating, getActiveEntity, Library, Name, PendingSource, Source, SourceError } from "@diffusionstudio/runtime";
 import { getProjectsRoot } from "@/projects";
 
 import type { Entity, World } from "koota";
-import type { GenerationRow } from "@diffusionstudio/dapi";
+import type { GenerationRow, ObjectMaskRow } from "@diffusionstudio/dapi";
 import type { ToolHandler } from "../handler";
 
 /**
@@ -37,8 +37,37 @@ export const context: ToolHandler<"context"> = async (_, ctx) => {
     // merely named in the source. The editor default is always among them.
     fontFamilies: [...new Set(["Inter", ...(world.get(Fonts)?.list ?? []).map((f) => f.family)])],
     generations: collectGenerations(world),
+    objectMasks: collectObjectMasks(world),
   };
 };
+
+/**
+ * The masks the Object mask tool tracked (PureCut): each with the footage it
+ * was tracked on and the clips playing that footage, so the drawer agent can
+ * put one to use — a privacy blur on the clip, or a text behind the subject
+ * with a `<mask follow>` naming one of the clips — without tracking anything.
+ */
+function collectObjectMasks(world: World): ObjectMaskRow[] {
+  const library = world.get(Library);
+  if (!library) return [];
+  const clips = new Map<string, Set<string>>();
+  for (const entity of world.query(Source)) {
+    const footage = findGeometryAsset(world, entity);
+    if (footage?.type !== "VIDEO") continue;
+    const stamp = entity.get(Source)!.value;
+    clips.set(footage.id, (clips.get(footage.id) ?? new Set()).add(stamp));
+  }
+  return library.list().flatMap((asset) => {
+    if (asset.type !== "MASK") return [];
+    const video = asset.recipe ? library.get(asset.recipe.source) : undefined;
+    return [{
+      path: asset.path,
+      video: video?.path ?? null,
+      sourceIn: asset.recipe ? asset.recipe.first / asset.frameRate : 0,
+      clips: asset.recipe ? [...(clips.get(asset.recipe.source) ?? [])] : [],
+    }];
+  });
+}
 
 function collectGenerations(world: World): GenerationRow[] {
   const library = world.get(Library);

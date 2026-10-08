@@ -15,6 +15,9 @@ const ranges: Record<string, [number, number]> = {
   width: [0.01, 100000], height: [0.01, 100000],
   rotation: [-360000, 360000], opacity: [0, 1], fontSize: [1, 2000],
   start: [0, 86400], end: [0, 86400],
+  // An effect's amount (blur radius or pixelate block size in px, hue degrees,
+  // 0-1 otherwise) and a mask's feather: what privacy blur strength is.
+  value: [-360, 1000], blur: [0, 1000],
 };
 
 export function validateScopedEdits(input: unknown): ScopedEdit[] {
