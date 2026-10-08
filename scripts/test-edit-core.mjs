@@ -79,6 +79,22 @@ const cases = {
     assert.deepEqual(result.skipped, []);
     assert.match(files.get(FILE), /<text id="t">Hi<solidPaint color="#000000" \/><\/text>/);
   },
+  // Upstream a0f843f: the canvas shows an edit before the file has it, and an
+  // export and the next open render the file, so an edit the write left out
+  // would move back. The user wins: a prop is written over a literal and over
+  // an expression alike.
+  async 'writes a prop over a literal and over an expression alike'() {
+    const { files, context } = project(
+      `const X = 100;\nexport default () => <video id="clip" x={X} y={20} rotation={ticker() * 2} />;\n`,
+    );
+    const result = await applyEdits(context, [
+      { kind: 'set', source: `${FILE}:clip`, props: { x: 555, y: 42, rotation: 90 } },
+    ]);
+    assert.deepEqual(result.skipped, []);
+    assert.ok(files.get(FILE).includes(`<video id="clip" x={555} y={42} rotation={90} />`), files.get(FILE));
+    // The constant is someone else's too, and stays.
+    assert.ok(files.get(FILE).includes(`const X = 100;`), files.get(FILE));
+  },
 };
 
 let failed = 0;
