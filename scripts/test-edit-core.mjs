@@ -35,6 +35,17 @@ await build({
   logLevel: 'error',
 });
 const { retargetTextColours } = await import(pathToFileURL(resolve(colourBundle)).href);
+const scopedBundle = join(out, 'scoped-edits.mjs');
+await build({
+  entryPoints: ['purecut/lib/scoped-edits.ts'],
+  outfile: scopedBundle,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  external: ['ts-morph'],
+  logLevel: 'error',
+});
+const { validateScopedEdits } = await import(pathToFileURL(resolve(scopedBundle)).href);
 
 const FILE = 'index.tsx';
 function project(source) {
@@ -177,6 +188,22 @@ const cases = {
     assert.deepEqual(await retargetTextColours(context.io, edits), edits);
   },
 };
+
+// proposeCutEdits guard: a colour never becomes words.
+Object.assign(cases, {
+  async 'rejects text that is only a colour'() {
+    for (const text of ['#DF2626', 'DF2626', '#fff', 'rgb(223, 38, 38)'])
+      assert.throws(() => validateScopedEdits([{ source: `${FILE}:t`, text }]), /not its colour/, text);
+  },
+  async 'rejects a recolour that also changes the words'() {
+    assert.throws(() => validateScopedEdits([{ source: `${FILE}:t`, props: { fill: '#DF2626' }, text: 'Hello' }]), /must not change the words/);
+  },
+  async 'accepts ordinary words, including hex-letter words, and a recolour on its own'() {
+    for (const text of ['facade', 'decade', '#1 hit', 'A conversation about design'])
+      assert.equal(validateScopedEdits([{ source: `${FILE}:t`, text }])[0].text, text);
+    assert.deepEqual(validateScopedEdits([{ source: `${FILE}:t`, props: { fill: '#DF2626' } }])[0].props, { fill: '#DF2626' });
+  },
+});
 
 let failed = 0;
 for (const [name, run] of Object.entries(cases)) {

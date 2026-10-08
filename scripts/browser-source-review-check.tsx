@@ -1,7 +1,17 @@
 import { render } from 'solid-js/web';
-import { createSourceReview, SourceEditReview } from '../purecut/edit-review';
+import { createSourceReview, diffSources, SourceEditReview } from '../purecut/edit-review';
 
 export async function checkSourceReview() {
+  {
+    // The diff folds what did not change and keeps two lines of context.
+    const before = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n');
+    const after = before.replace('line 10', '<text>#DF2626</text>');
+    const rows = diffSources(before, after);
+    const kinds = rows.map(row => row.kind).join(',');
+    if (kinds !== 'gap,same,same,del,add,same,same,gap') throw Error(`diff rows: ${kinds}`);
+    if ((rows[0] as { count: number }).count !== 8 || (rows.at(-1) as { count: number }).count !== 7) throw Error('diff gaps count the folded lines');
+    if (diffSources('same', 'same').length !== 0) throw Error('no change gives no rows');
+  }
   const review = createSourceReview();
   const host = document.createElement('div');
   document.body.append(host);
@@ -16,6 +26,8 @@ export async function checkSourceReview() {
     check(applied === 0, 'presenting a proposal must not apply it');
     const panel = () => document.querySelector('.cut-source-review')!;
     check(panel().textContent?.includes('Before text') && panel().textContent?.includes('After text'), 'review shows both source snapshots');
+    check(panel().querySelector('.cut-diff-del')?.textContent?.includes('Before text')
+      && panel().querySelector('.cut-diff-add')?.textContent?.includes('After text'), 'review leads with removed and added lines');
     check(document.activeElement?.textContent === 'Discard', 'review initially focuses discard');
     let rejected = false;
     try { review.present(proposal, async () => {}); } catch { rejected = true; }
