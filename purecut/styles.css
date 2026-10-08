@@ -255,3 +255,24 @@
   white-space: normal;
 }
 #cut-editor .cut-tool-bar-note.text-destructive { color: var(--destructive); }
+/* The bar's menus open in a portal, outside #cut-editor: the same paper, so
+   the stage does not show through dark glass. */
+:root[data-app="cut"] .cut-tool-bar-menu {
+  --background: var(--pure-chrome-paper);
+  --border: var(--glass-line, var(--pure-chrome-hairline));
+}
+
+/* A note in an inspector section: set text, the paper's own, no box. */
+#cut-editor .cut-inspector-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--foreground);
+  text-wrap: pretty;
+}
+#cut-editor .cut-inspector-note p { margin: 0; }
+#cut-editor .cut-inspector-note kbd { vertical-align: 1px; }
+#cut-editor .cut-inspector-note.text-destructive { color: var(--destructive); }

@@ -27,7 +27,7 @@
       "tools": [
         {
           "name": "getCutContext",
-          "description": "Read the open timeline project JSX, revision hash, playhead and fonts. Read before edits.",
+          "description": "Read the open timeline project JSX, revision hash, playhead, fonts and objectMasks (masks the user tracked, each with its .mask path, footage, sourceIn and the clip ids playing that footage). Read before edits.",
           "inputSchema": {
             "type": "object",
             "properties": {},
@@ -94,6 +94,14 @@
                         },
                         "end": {
                           "type": "number"
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "An <effect>'s amount: blur radius or pixelate block size in px (privacy strength), hueRotate degrees, 0-1 otherwise."
+                        },
+                        "blur": {
+                          "type": "number",
+                          "description": "On a <mask>: its feather in px. On a node: its own blur in px."
                         }
                       }
                     }
@@ -113,7 +121,7 @@
         },
         {
           "name": "proposeCutSource",
-          "description": "Propose edited project JSX for the user to review and apply. Read getCutContext first and use its baseHash. Does not save until the user applies the proposal. Preserve unrelated content and stable ids. Prefer this over direct replacement. For clip paths and object masks see agents.md: reuse existing .mask files only; the user's Object mask tool makes them.",
+          "description": "Propose edited project JSX for the user to review and apply. Read getCutContext first and use its baseHash. Does not save until the user applies the proposal. Preserve unrelated content and stable ids. Prefer this over direct replacement. For clip paths, object masks, privacy blur and text behind a subject see agents.md: reuse existing .mask files only (getCutContext objectMasks); the user's Object mask tool makes them, and when none exists ask the user to track the subject with it.",
           "inputSchema": {
             "type": "object",
             "properties": {

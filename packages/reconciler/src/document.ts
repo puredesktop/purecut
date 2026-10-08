@@ -293,6 +293,7 @@ export const EFFECT_TYPES: Record<string, EffectType> = {
 	saturate: EffectType.SATURATE,
 	sepia: EffectType.SEPIA,
 	opacity: EffectType.OPACITY,
+	pixelate: EffectType.PIXELATE,
 };
 
 const STROKE_JOINS: Record<string, StrokeJoin> = {
@@ -976,6 +977,12 @@ export class RuntimeDocument implements ProjectDocument<SceneNode> {
 			case 'inverted': {
 				if (!entity.has(Mask)) return;
 				entity.set(Mask, { inverted: value === true });
+				return;
+			}
+			case 'follow': {
+				// The id of the clip a mask is placed on and timed by, instead of its own node.
+				if (!entity.has(Mask)) return;
+				entity.set(Mask, { follow: typeof value === 'string' ? value : '' });
 				return;
 			}
 			case 'smoothing': {

@@ -3,18 +3,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { isProjectSource } from '@diffusionstudio/assets';
-import { FrameRate, Library, Tool, ToolType, getSourceWindow, getVideoTrack } from '@diffusionstudio/runtime';
+import { FrameRate, Library, Tool, ToolType, getParentNode, getSourceWindow, getVideoTrack } from '@diffusionstudio/runtime';
 import { paintMask } from '@diffusionstudio/sam2/mask';
 import { sam2Model, sam2ModelOfRepo } from '@diffusionstudio/sam2/models';
 import { toast } from 'somoto';
 
 import { getDocumentEditor } from '../editor';
-import { commitObjectMask, encodeObjectMask } from './commit';
+import { commitObjectMaskAs, encodeObjectMask } from './commit';
 import { maskFrame } from './frame';
 import { currentSourceFrame, getVideoRect } from './media';
 import {
 	ModelNotDownloadedError, allowObjectMaskModel, clearObjectTrack, clearTargetEffect, finishMaskRestore, getMaskRestore, getObjectTrack,
-	isObjectMaskModelAllowed, objectMaskModel, objectMaskModelLoad, setMaskRestore, setObjectHover, setObjectMaskModel,
+	isObjectMaskModelAllowed, objectMaskModel, objectMaskModelLoad, objectMaskUse, setMaskRestore, setObjectHover, setObjectMaskModel,
 	setObjectMaskModelLoad, setObjectTrack,
 } from './store';
 
@@ -95,7 +95,7 @@ export function promptObjectMask(world: World, clip: Entity, point: MaskPoint): 
 /**
  * Follows the prompted object through every source frame the clip plays,
  * then writes the frames into the library and authors the mask on the clip,
- * under an opacity effect (see `commitObjectMask`). The session is spent
+ * put to the use picked in the tool's bar (see `commitObjectMaskAs`). The session is spent
  * once the document holds the mask: the clip is selected with the Move tool
  * so its effects, and the mask under them, are at hand.
  */
@@ -135,16 +135,25 @@ export function trackObjectMask(world: World): void {
 		if (signal.aborted) return;
 
 		track.status = 'saving';
-		const mask = await commitObjectMask(world, track);
+		const use = objectMaskUse();
+		const committed = await commitObjectMaskAs(world, track, use);
 		if (signal.aborted) return;
 
 		clearObjectTrack();
 		clearTargetEffect();
-		if (!mask) {
+		if (!committed) {
 			toast.error('Object mask failed', { description: 'The mask could not be saved.' });
 			return;
 		}
-		if (track.clip.isAlive()) getDocumentEditor(world).select(track.clip);
+		// PureCut: behind text with no text above the clip keeps the mask for later.
+		if (committed.masks.length === 0) {
+			toast('Mask saved, no text to put behind it', {
+				description: 'Add a text above the clip, then choose Behind subject in its inspector.',
+			});
+		}
+		const texts = use === 'behind' ? committed.masks.map((mask) => getParentNode(getParentNode(mask))).filter((node): node is Entity => !!node) : [];
+		if (texts.length > 0) getDocumentEditor(world).select(texts);
+		else if (track.clip.isAlive()) getDocumentEditor(world).select(track.clip);
 		if (world.get(Tool)?.value === ToolType.OBJECT_MASK) world.set(Tool, { value: ToolType.MOVE });
 	});
 }

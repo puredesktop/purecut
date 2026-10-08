@@ -49,7 +49,8 @@ A filter over the parent's **rendered pixels** — its fills, strokes and childr
 
 | `type` | `value` means |
 | ------ | ------------- |
-| `"blur"` | Radius in px. |
+| `"blur"` | Radius in px of the node, so it holds at any preview zoom or export resolution. |
+| `"pixelate"` | Block size in px of the node; `1` or less is off. The blocks sit on the node's box and turn with it. |
 | `"hueRotate"` | Degrees. |
 | `"brightness"`, `"contrast"`, `"grayscale"`, `"invert"`, `"saturate"`, `"sepia"` | Amount, `0`–`1`. |
 | `"opacity"` | The node's opacity as an effect, `0`–`1`. With a `<mask>` under it, what is outside the mask goes transparent: the cut-out. |
@@ -81,6 +82,7 @@ Under an `"opacity"` effect the mask is the cut-out: the clip shows inside the m
 | `opacity` | `number` | `1` | How strongly the mask limits the effect. `1` stops the effect at the edge; lower lets that much of it through outside; `0` is no mask. |
 | `inverted` | `boolean` | `false` | Covers what the picture does not instead. |
 | `smoothing` | `number` | `0.25` | How much a mask file's edge is smoothed, `0`–`1`. At `0` it is exactly where the model put it; the more, the rounder, and the more of what is thin or small melts away. Sharp at any size either way. |
+| `follow` | `string` | none | The `id` of a video clip whose subject this is: the frames are placed in that clip's box, with its transform and fit, and timed by its source time instead of the node's. While the clip is not playing the mask covers nothing. |
 | `hidden` | `boolean` | absent | Switches the mask off without removing it. |
 
 `blur` and `opacity` take a [`<keyframeTrack>`](./keyframes.md).
@@ -92,6 +94,30 @@ Under an `"opacity"` effect the mask is the cut-out: the clip shows inside the m
   </effect>
 </video>
 ```
+
+**Privacy blur.** A `"blur"` or `"pixelate"` effect with a mask blurs only the tracked object — a face, a plate, a screen — for the whole clip:
+
+```tsx
+<video id="street" src="footage/street.mp4" width={1920} height={1080}>
+  <effect type="pixelate" value={24}>
+    <mask src="masks/street/Tracking 1.mask" />
+  </effect>
+</video>
+```
+
+**Behind the subject.** A text (or any node) above a clip, with an inverted mask that follows the clip under an `"opacity"` effect, is cut away where the subject is, so the subject stands in front of it and the rest of the frame stays behind it:
+
+```tsx
+<video id="talk" src="footage/talk.mp4" width={1920} height={1080} />
+<text id="title" x={200} y={300} fontSize={280}>
+  BIG IDEAS
+  <effect type="opacity" value={1}>
+    <mask src="masks/talk/Tracking 1.mask" follow="talk" inverted />
+  </effect>
+</text>
+```
+
+The subject shows through from the clip below, so anything drawn between the clip and the text is cut away with it.
 
 ## Animating them
 

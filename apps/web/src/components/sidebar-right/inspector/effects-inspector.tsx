@@ -78,6 +78,7 @@ export function EffectsInspector(props: EffectsInspectorProps) {
   const hidden = useHas(() => props.effect, Hidden);
 
   const option = createMemo(() => effectOption(effect()?.type));
+  const pixelate = () => option().name === "pixelate";
   const value = useDerived(() => props.effect.get(Computed)?.value ?? 0);
   const masks = useDerived(() => props.effect.get(Cache)?.masks ?? NO_MASKS);
 
@@ -184,7 +185,7 @@ export function EffectsInspector(props: EffectsInspectorProps) {
         </Show>
 
         <Show when={option().unit === "px"}>
-          <ControlRow label="Radius" contentClass="grid grid-cols-2 gap-2">
+          <ControlRow label={pixelate() ? "Block size" : "Radius"} contentClass="grid grid-cols-2 gap-2">
             <ControlledTextField
               value={value()}
               onNumber={(next) => editValue(Math.max(0, next))}
@@ -197,8 +198,8 @@ export function EffectsInspector(props: EffectsInspectorProps) {
             <IncrementDecrementControl
               onDecrement={() => editValue(Math.max(0, value() - 1))}
               onIncrement={() => editValue(value() + 1)}
-              decrementLabel="Decrease blur radius"
-              incrementLabel="Increase blur radius"
+              decrementLabel={pixelate() ? "Smaller blocks" : "Decrease blur radius"}
+              incrementLabel={pixelate() ? "Bigger blocks" : "Increase blur radius"}
             />
           </ControlRow>
         </Show>

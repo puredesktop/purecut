@@ -38,6 +38,7 @@ import { TextColorSettings } from "./text-color";
 import { StrokesSettings } from "./strokes";
 import { ShadowsSettings } from "./shadows";
 import { EffectsSettings } from "./effects";
+import { BehindSubjectSettings } from "./behind-subject";
 import { AnimationsSettings } from "./animations";
 import { TransitionSettings } from "./transition";
 import { ClipPathsSettings } from "./clip-paths";
@@ -184,6 +185,10 @@ export function Inspector() {
 
           <Show when={includesTarget("shape", "text", "scene", "caption")}>
             <EffectsSettings selection={nodes()} />
+          </Show>
+
+          <Show when={includesTarget("shape", "text")}>
+            <BehindSubjectSettings selection={nodes()} />
           </Show>
 
           <Show when={includesTarget("shape", "text", "caption", "group", "clip-path")}>

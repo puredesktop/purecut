@@ -137,3 +137,30 @@ preview and decoded-export pixels for a moving mask, clip paths and the legacy
 spelling, the tool's commit with segmentation stubbed, locked clips, and that
 nothing is fetched before consent. Edit-core round trips are in
 `test:purecut:edit-core`.
+
+### What a mask is used for
+
+The tool's bar picks what **Confirm** makes of the tracked object (**Use
+as**, remembered): **Cut out** (an `opacity` effect on the clip), **Blur** or
+**Pixelate** (a privacy `blur` or `pixelate` effect on the clip, limited to
+the object), or **Behind text** (every text above the clip that plays with
+it goes behind the object). Each is one document edit and one undo step,
+spelled in the JSX like anything else (`engine/object-mask/uses.tsx`).
+
+Behind subject is a node's `opacity` effect holding an inverted `<mask
+follow="<clip id>">`: the mask is placed in the followed clip's box and timed
+by its footage, so the node is cut away where the subject is and the subject
+shows through from the clip below. A text's inspector has a **Behind
+subject** section to pick the subject, change it or turn it off, and before
+anything is tracked it says how to track one with the Object mask tool.
+
+`pixelate` is an effect of the runtime (block size in px of the node, drawn
+as a layer pass in the preview and the export alike). Blur effects, a node's
+own blur and a mask's feather are measured in px of the node, so a privacy
+blur is as strong in a 4K export as in the preview.
+
+Verified by `browser-mask-uses-check` (in `test:purecut`) with a hand-made
+mask: pixels of preview and decoded export agree for behind subject, blur and
+pixelate; the editor's commands undo in one step and round-trip through
+`applyEdits` and the compiler. `scripts/test-mask-uses-visual.mjs` takes the
+screenshots.

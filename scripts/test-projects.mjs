@@ -124,6 +124,7 @@ try {
       await (await import('/scripts/browser-editing-check.ts')).checkEverydayEditing();
       await (await import('/scripts/browser-upstream-runtime-check.ts')).checkUpstreamRuntimeFixes();
       await (await import('/scripts/browser-object-mask-check.tsx')).checkObjectMasks();
+      await (await import('/scripts/browser-mask-uses-check.tsx')).checkMaskUses();
       const reviewVideo = await (await import('/scripts/browser-timeline-check.ts')).checkTimeline();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport();
       await (await import('/scripts/browser-audio-export-check.ts')).checkAudioExport(true);

@@ -11,3 +11,4 @@ export * from './use-object-masks';
 export * from './interaction';
 export * from './brush';
 export * from './overlay';
+export * from './uses';
