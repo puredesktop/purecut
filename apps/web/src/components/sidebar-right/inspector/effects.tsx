@@ -19,6 +19,7 @@ import { useHas, useTrait } from "@diffusionstudio/koota-solid";
 import { Effect as EffectElement } from "@diffusionstudio/reconciler";
 import { Cache, Effect, Hidden } from "@diffusionstudio/runtime";
 import { useDerived, useEditor } from "@/engine/hooks";
+import { isBehindSubjectEffect } from "@/engine/object-mask";
 import { DEFAULT_EFFECT, effectOption } from "./effect-types";
 import { EffectsInspector } from "./effects-inspector";
 
@@ -142,7 +143,9 @@ function EffectRow(props: EffectRowProps) {
   const effect = useTrait(() => props.effect, Effect);
   const hidden = useHas(() => props.effect, Hidden);
 
-  const label = createMemo(() => effectOption(effect()?.type).label);
+  // PureCut: an opacity effect that puts the layer behind a tracked subject says so.
+  const behind = useDerived(() => isBehindSubjectEffect(props.effect));
+  const label = createMemo(() => (behind() ? "Behind subject" : effectOption(effect()?.type).label));
 
   const toggleHidden = () => {
     editor.editProperty(props.effect, "hidden", !hidden());

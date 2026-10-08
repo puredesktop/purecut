@@ -11,10 +11,13 @@ import { getDocumentEditor } from '../editor';
 import { isEditLocked } from '../locking';
 import { getVideoRect } from './media';
 import { getTargetEffect } from './store';
+import { addPrivacyEffect, authoredId, setBehindSubject, textsAboveClip } from './uses';
 
 import type { Entity, World } from 'koota';
-import type { AssetLibrary, MaskFrame, MaskRecipe, VideoAsset } from '@diffusionstudio/assets';
+import type { AssetLibrary, MaskAsset, MaskFrame, MaskRecipe, VideoAsset } from '@diffusionstudio/assets';
+import type { ObjectMaskSource } from './copy';
 import type { ObjectTrack } from './store';
+import type { ObjectMaskUse } from './uses';
 
 /** Where masks go in the library: a folder per video under this one. */
 const MASKS_FOLDER = 'masks';
@@ -28,9 +31,25 @@ const MASKS_FOLDER = 'masks';
  * was started for, or else under an `opacity` effect: the cut-out. A clip
  * that already has an opacity effect gets the mask under that one. Returns
  * the mask, or null when nothing was written (the session was cancelled, the
- * clip is not a video, or it is locked).
+ * clip is not a video, or it is locked). `use` picks another effect for the
+ * mask (PureCut, see `commitObjectMaskAs`).
  */
-export async function commitObjectMask(world: World, track: ObjectTrack): Promise<Entity | null> {
+export async function commitObjectMask(world: World, track: ObjectTrack, use: ObjectMaskUse = 'cutout'): Promise<Entity | null> {
+	return (await commitObjectMaskAs(world, track, use))?.mask ?? null;
+}
+
+/** What a commit wrote: the mask file, and the masks it authored — none when there was nowhere to put one. */
+export type ObjectMaskCommit = { asset: MaskAsset; mask: Entity | null; masks: Entity[] };
+
+/**
+ * `commitObjectMask`, with the mask put to `use` (PureCut): the cut-out, a
+ * privacy blur or pixelation on the clip, or the texts above the clip put
+ * behind the object (see `uses.tsx`). A target effect, set from an effect's
+ * inspector, takes the mask whatever the use. Behind text with no text
+ * above the clip writes the file and authors nothing. Null when nothing was
+ * written at all.
+ */
+export async function commitObjectMaskAs(world: World, track: ObjectTrack, use: ObjectMaskUse): Promise<ObjectMaskCommit | null> {
 	const library = world.get(Library);
 	const rect = getVideoRect(world, track.clip);
 	const model = track.model;
@@ -52,24 +71,39 @@ export async function commitObjectMask(world: World, track: ObjectTrack): Promis
 	});
 	if (signal.aborted) return null;
 
-	const asset = await library.store(blob, { folder, name: nextTrackingName(library, folder) });
+	const asset = await library.store(blob, { folder, name: nextTrackingName(library, folder) }) as MaskAsset;
 	if (signal.aborted || !track.clip.isAlive()) return null;
 
 	const editor = getDocumentEditor(world);
 	const mask = () => <Mask src={asset.path} sourceIn={track.first / fps} />;
+	const written = (entity: Entity | null | undefined): ObjectMaskCommit => ({ asset, mask: entity ?? null, masks: entity ? [entity] : [] });
 
 	const target = getTargetEffect();
-	const holder = target && getParentNode(target) === track.clip ? target : opacityEffect(track.clip);
+	if (target && getParentNode(target) === track.clip) {
+		return written(editor.insertElement(target, mask)[0]);
+	}
+
+	const source: ObjectMaskSource = { asset, name: assetName(asset).replace(/\.[^.]+$/, ''), sourceIn: track.first / fps };
+	if (use === 'blur' || use === 'pixelate') {
+		return written(addPrivacyEffect(world, track.clip, source, use)?.get(Cache)?.masks[0]);
+	}
+	if (use === 'behind') {
+		const id = authoredId(track.clip);
+		const masks = id === null ? [] : textsAboveClip(world, track.clip).flatMap((text) =>
+			setBehindSubject(world, text, { clip: track.clip, id, clipName: '', source }) ?? []);
+		return { asset, mask: masks[0] ?? null, masks };
+	}
+
+	const holder = opacityEffect(track.clip);
 	if (holder) {
-		const [inserted] = editor.insertElement(holder, mask);
-		return inserted ?? null;
+		return written(editor.insertElement(holder, mask)[0]);
 	}
 	const [effect] = editor.insertElement(track.clip, () => (
 		<EffectElement type="opacity" value={1}>
 			{mask()}
 		</EffectElement>
 	));
-	return effect?.get(Cache)?.masks[0] ?? null;
+	return written(effect?.get(Cache)?.masks[0]);
 }
 
 /** A mask file of tracked frames, on a `grid` square, over footage of `size`, one a frame at `frameRate`. */

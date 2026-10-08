@@ -8,11 +8,13 @@ import { createSignal } from 'solid-js';
 
 import { store } from '@/init';
 import { createStoredSignal } from '@/lib/store';
+import { isObjectMaskUse } from './uses';
 
 import type { Entity, World } from 'koota';
 import type { MaskAsset, MaskFrame } from '@diffusionstudio/assets';
 import type { Sam2Mask } from '@diffusionstudio/sam2/mask';
 import type { Sam2Model, Sam2ModelId } from '@diffusionstudio/sam2/models';
+import type { ObjectMaskUse } from './uses';
 
 /** A prompt on the video, in 0..1 of its frame; label 1 marks the object, 0 marks background. */
 export type MaskPoint = { x: number; y: number; label: 0 | 1 };
@@ -137,6 +139,19 @@ export type ObjectMaskMode = 'points' | 'brush';
 export type ObjectMaskOp = 'add' | 'subtract';
 
 // Which of them the tool is on, and the brush's size, are the world's `ObjectMaskTool`.
+
+// ── What the mask is for (PureCut) ───────────────────────────
+
+const [objectMaskUse, storeObjectMaskUse] = createStoredSignal(
+	store.define<ObjectMaskUse>('object-mask.use', 'cutout', (use) => (isObjectMaskUse(use) ? use : 'cutout')),
+);
+
+/** What Confirm makes of the tracked object (see `uses.tsx`), reactive and kept across sessions. */
+export { objectMaskUse };
+
+export function setObjectMaskUse(use: ObjectMaskUse): void {
+	storeObjectMaskUse(use);
+}
 
 // ── The model ────────────────────────────────────────────────
 

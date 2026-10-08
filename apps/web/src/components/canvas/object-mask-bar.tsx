@@ -28,16 +28,21 @@ import {
   getMaskRestore,
   getObjectTrack,
   heldObjectMaskOp,
+  OBJECT_MASK_USES,
   objectMaskModel,
   objectMaskModelLoad,
+  objectMaskUse,
   pickObjectMaskModel,
   preloadObjectMaskModel,
+  setObjectMaskUse,
+  getTargetEffect,
+  textsAboveClip,
   trackObjectMask,
 } from "@/engine/object-mask";
 
 import type { JSX } from "solid-js";
 import type { Sam2Model, Sam2ModelId } from "@diffusionstudio/sam2/models";
-import type { ObjectMaskMode, ObjectMaskModelLoad, ObjectMaskOp, ObjectTrackStatus } from "@/engine/object-mask";
+import type { ObjectMaskMode, ObjectMaskModelLoad, ObjectMaskOp, ObjectMaskUseOption, ObjectTrackStatus } from "@/engine/object-mask";
 
 const MODES = [
   { value: "points", label: "Point", icon: "object-mask.point", shortcut: "P" },
@@ -64,7 +69,8 @@ const MODEL_NOTES: Record<Sam2ModelId, string> = {
 const BRUSH_SIZE = { min: 1, max: 30 };
 
 /** The menus the bar opens: headed lists, laid out like the toolbar's own. */
-const MENU_CLASS = "rounded-xl border-border bg-background px-2 pt-0 pb-2 gap-0 shadow-[0px_12px_24px_0px_rgba(0,0,0,0.24)]";
+// PureCut: `cut-tool-bar-menu` gives them the bar's opaque paper (purecut/styles.css).
+const MENU_CLASS = "cut-tool-bar-menu rounded-xl border-border bg-background px-2 pt-0 pb-2 gap-0 shadow-[0px_12px_24px_0px_rgba(0,0,0,0.24)]";
 
 type SessionState = {
   status: ObjectTrackStatus | null;
@@ -91,6 +97,8 @@ export function ObjectMaskBar() {
     if (!track) return null;
     return { status: track.status, completed: track.completed, total: track.masks.length };
   }, sameState);
+
+  const targeted = useDerived(() => getTargetEffect() !== null);
 
   const busy = () => {
     const status = state()?.status;
@@ -130,6 +138,11 @@ export function ObjectMaskBar() {
           <>
             <ModePopover />
             <OpMenu disabled={tool.mode() === "brush"} />
+            {/* PureCut: what Confirm makes of the object; an effect's own mask goes under that effect. */}
+            <Show when={!targeted()}>
+              <Separator orientation="vertical" class="min-h-5" />
+              <UseMenu disabled={busy()} />
+            </Show>
           </>
         }
       >
@@ -341,6 +354,76 @@ function ModePopover() {
   );
 }
 
+/**
+ * What Confirm makes of the tracked object (PureCut): the cut-out, a privacy
+ * blur or pixelation on the clip, or the texts above the clip put behind it.
+ * Kept across sessions. Behind text needs a text above the clip, which the
+ * menu says once a clip is picked.
+ */
+function UseMenu(props: { disabled: boolean }) {
+  const world = useWorld();
+  const use = () => OBJECT_MASK_USES.find((option) => option.value === objectMaskUse()) ?? OBJECT_MASK_USES[0];
+  // Texts above the picked clip, or null before a click picks one.
+  const texts = useDerived(() => {
+    const track = getObjectTrack();
+    return track ? textsAboveClip(world, track.clip).length : null;
+  });
+  const [hovered, setHovered] = createSignal<{ option: ObjectMaskUseOption; row: HTMLElement } | null>(null);
+  const unavailable = (option: ObjectMaskUseOption) => option.value === "behind" && texts() === 0;
+  const hint = (option: ObjectMaskUseOption) =>
+    unavailable(option) ? "No text above this clip. Add one first, or pick it later from the text's inspector." : option.hint;
+
+  return (
+    <DropdownMenu placement="top-start" gutter={8} onOpenChange={(open) => !open && setHovered(null)}>
+      <Tooltip>
+        <TooltipTrigger<typeof DropdownMenuTrigger>
+          as={(triggerProps: object) => (
+            <DropdownMenuTrigger<typeof Button>
+              {...triggerProps}
+              disabled={props.disabled}
+              as={(buttonProps) => (
+                <Button {...buttonProps} variant="ghost" class={cx("gap-1.5", unavailable(use()) ? "text-destructive" : "text-muted-foreground")}>
+                  <span>Use as</span>
+                  <span class="text-foreground">{use().label}</span>
+                </Button>
+              )}
+            />
+          )}
+        />
+        <TooltipContent>{hint(use())}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuPortal>
+        <DropdownMenuContent class={cx(MENU_CLASS, "min-w-44")} onEscapeKeyDown={keepEscape}>
+          <MenuHeader>Use the object as</MenuHeader>
+          <div class="flex flex-col gap-1 py-0.5">
+            <For each={OBJECT_MASK_USES}>
+              {(option) => (
+                <CheckedItem
+                  checked={option.value === use().value}
+                  disabled={unavailable(option)}
+                  onSelect={() => setObjectMaskUse(option.value)}
+                  onHover={(row) => setHovered(row ? { option, row } : null)}
+                >
+                  {option.label}
+                </CheckedItem>
+              )}
+            </For>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenuPortal>
+      <Show when={hovered()}>
+        {(hover) => (
+          <Portal>
+            <ModelHint row={hover().row}>
+              <span>{hint(hover().option)}</span>
+            </ModelHint>
+          </Portal>
+        )}
+      </Show>
+    </DropdownMenu>
+  );
+}
+
 /** Whether clicks add to the object or subtract from it; the button shows the op alt swaps in while held. */
 function OpMenu(props: { disabled: boolean }) {
   const world = useWorld();
@@ -391,6 +474,7 @@ function MenuHeader(props: { children: JSX.Element }) {
 
 type CheckedItemProps = {
   checked: boolean;
+  disabled?: boolean;
   onSelect(): void;
   onHover?(row: HTMLElement | null): void;
   children: JSX.Element;
