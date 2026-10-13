@@ -12,6 +12,7 @@ import { ALL_FORMATS, BlobSource, CanvasSink, Input } from 'mediabunny';
 
 import { MASK_MIME_TYPE, MaskFile } from '../mask';
 import { traceMask } from '../mask-outline';
+import { getSvgDimensions } from '../probe';
 
 /** The width the asset bar shows; what the cache stores without a variant. */
 export const DEFAULT_THUMBNAIL_WIDTH = 300;
@@ -27,6 +28,7 @@ const MASK_BACKGROUND = '#1a1a1a';
 
 /** A WebP thumbnail of `file`, `width` wide, or null when it is no image, video with a picture, or mask. */
 export async function deriveThumbnail(file: Blob, mimeType: string, width = DEFAULT_THUMBNAIL_WIDTH): Promise<Blob | null> {
+	if (mimeType === 'image/svg+xml') return svgThumbnail(file, width);
 	if (mimeType.startsWith('image/')) return imageThumbnail(file, width);
 	if (mimeType.startsWith('video/')) return videoThumbnail(file, width);
 	if (mimeType === MASK_MIME_TYPE) return maskThumbnail(file, width);
@@ -43,6 +45,29 @@ async function imageThumbnail(file: Blob, width: number): Promise<Blob | null> {
 		return await encode(canvas);
 	} finally {
 		bitmap.close();
+	}
+}
+
+/**
+ * createImageBitmap takes no SVG blob, so an SVG goes through an `<img>`
+ * and is drawn at the thumbnail's size: rasterized there, not scaled down.
+ * Its size comes from the file, as an SVG with only a viewBox reports none.
+ */
+async function svgThumbnail(file: Blob, width: number): Promise<Blob | null> {
+	const size = await getSvgDimensions(file);
+	const height = Math.max(1, Math.round((width * size.height) / size.width));
+	const url = URL.createObjectURL(file);
+	try {
+		const img = new Image();
+		img.src = url;
+		await img.decode();
+		const canvas = new OffscreenCanvas(width, height);
+		const ctx = canvas.getContext('2d');
+		if (!ctx) throw new Error('Could not create a 2d context');
+		ctx.drawImage(img, 0, 0, width, height);
+		return await encode(canvas);
+	} finally {
+		URL.revokeObjectURL(url);
 	}
 }
 

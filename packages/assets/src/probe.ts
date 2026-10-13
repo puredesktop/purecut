@@ -217,7 +217,8 @@ async function getRasterDimensions(file: Blob): Promise<{ width: number; height:
 	return { width, height };
 }
 
-async function getSvgDimensions(file: Blob): Promise<{ width: number; height: number }> {
+/** An SVG's size from its `width`/`height`, else its `viewBox`, else the spec's 300×150. */
+export async function getSvgDimensions(file: Blob): Promise<{ width: number; height: number }> {
 	const text = await file.text();
 	const root = new DOMParser().parseFromString(text, 'image/svg+xml').documentElement;
 
