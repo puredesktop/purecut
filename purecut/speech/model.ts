@@ -197,6 +197,21 @@ export function frameRanges(
     duration,
   )
 }
+/** How many cuts a proposal reply lists; the review in the transcript panel holds them all. */
+export const LISTED_CUTS = 50
+/** A proposal's cuts for the agent's reply: the count, then the first few, never one per filler in a long talk. */
+export function listedCuts(cuts: Range[], limit = LISTED_CUTS) {
+  return {
+    cutCount: cuts.length,
+    cuts: cuts.slice(0, limit),
+    ...(cuts.length > limit
+      ? {
+          cutsNotListed: cuts.length - limit,
+          cutsNote: `Only the first ${limit} cuts are listed here; the review in the transcript panel holds all ${cuts.length}.`,
+        }
+      : {}),
+  }
+}
 export function pauseCuts(
   silences: Range[],
   clips: Clip[],
