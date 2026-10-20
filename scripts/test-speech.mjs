@@ -182,3 +182,15 @@ assert.deepEqual(
   clipped[0].words.map(w => [w.start, w.end]),
   [[1, 1.3]],
 )
+
+// A proposal reply lists a bounded number of cuts: a long talk can hold
+// hundreds of fillers, and the reply goes back into the agent's context.
+const few = m.listedCuts([{ start: 1, end: 2 }])
+assert.deepEqual(few, { cutCount: 1, cuts: [{ start: 1, end: 2 }] })
+const many = Array.from({ length: 400 }, (_, i) => ({ start: i * 2 + 0.36666666666666664, end: i * 2 + 0.7333333333333333 }))
+const listed = m.listedCuts(many)
+assert.equal(listed.cutCount, 400)
+assert.equal(listed.cuts.length, m.LISTED_CUTS)
+assert.equal(listed.cutsNotListed, 400 - m.LISTED_CUTS)
+assert.match(listed.cutsNote, /all 400/)
+console.log('PASS speech proposal replies list a bounded number of cuts')

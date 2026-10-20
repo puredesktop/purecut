@@ -141,7 +141,7 @@
         },
         {
           "name": "replaceCutSource",
-          "description": "Replace the open project JSX using its current baseHash. Compiles before saving. Preserve unrelated content and stable ids.",
+          "description": "Replace the open project JSX using its current baseHash. Compiles before saving. Preserve unrelated content and stable ids. Replies with status saved and the new hash (pass it as baseHash next), not the source; call getCutContext to read the saved JSX.",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -293,7 +293,7 @@
         },
         {
           "name": "proposeCutSpeechEdit",
-          "description": "Propose removal of spoken passages or create a separate highlight scene from selected passages. Read getCutTranscript first. Ranges are edited timeline seconds, not original media seconds. Deletions close gaps across speech and captions. Highlight preserves the original scene. User reviews before anything changes. Keep context and natural pauses between words; do not invent quotations.",
+          "description": "Propose removal of spoken passages or create a separate highlight scene from selected passages. Read getCutTranscript first. Ranges are edited timeline seconds, not original media seconds. Deletions close gaps across speech and captions. Highlight preserves the original scene. User reviews before anything changes. Keep context and natural pauses between words; do not invent quotations. Replies with cutCount and the first 50 cuts (cutsNotListed says how many more); the review holds them all.",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -345,7 +345,7 @@
         },
         {
           "name": "proposeCutSpeechCleanup",
-          "description": "Propose filler/repetition removal or shorten real audio silences using waveform analysis. Read getCutTranscript for the current baseHash first. Optional speech service is only needed to create the saved transcript. No uploads. User reviews and applies; nothing changes immediately. Repetitions are suggestions, not certain mistakes.",
+          "description": "Propose filler/repetition removal or shorten real audio silences using waveform analysis. Read getCutTranscript for the current baseHash first. Optional speech service is only needed to create the saved transcript. No uploads. User reviews and applies; nothing changes immediately. Repetitions are suggestions, not certain mistakes. Replies with cutCount, removedSeconds and the first 50 cuts (cutsNotListed says how many more); the review holds them all.",
           "inputSchema": {
             "type": "object",
             "additionalProperties": false,

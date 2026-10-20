@@ -6,6 +6,7 @@ import { loadTranscript } from './store'
 import {
   fillerSuggestions,
   frameRanges,
+  listedCuts,
   pauseCuts,
   ranges,
   subtract,
@@ -96,7 +97,7 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
     const cuts = frameRanges(proposed, snapshot.world.get(FrameRate)?.value ?? 30, snapshot.end)
     if (!cuts.length) return { status: 'no-matches', message: 'No matching cleanup suggestions; nothing changed.' }
     reviewSpeech({ snapshot, cuts, title: args.mode === 'fillers' ? 'Review filler words' : 'Shorten pauses' })
-    return { status: 'awaiting_review', cuts, removedSeconds: cuts.reduce((n, r) => n + r.end - r.start, 0),
+    return { status: 'awaiting_review', ...listedCuts(cuts), removedSeconds: cuts.reduce((n, r) => n + r.end - r.start, 0),
       message: 'Nothing changed. The user can preview, adjust and apply these cleanup suggestions.' }
   }
   if (args.mode !== 'delete' && args.mode !== 'highlight')
@@ -128,7 +129,7 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
   })
   return {
     status: 'awaiting_review',
-    cuts,
+    ...listedCuts(cuts),
     remainingSeconds:
       snapshot.end - cuts.reduce((n, r) => n + r.end - r.start, 0),
     message:

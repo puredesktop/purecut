@@ -80,8 +80,19 @@ export async function cutTool(name: string, args: any = {}) {
     });
     return { status: "awaiting_review", baseHash: proposal.baseHash, proposedHash: proposal.hash };
   }
-  if (name === "replaceCutSource")
-    return request("purecut:replace", { ...args, dir: context.projectDir });
+  if (name === "replaceCutSource") {
+    // The channel hands back the whole saved JSX (the reviewed-apply path keeps
+    // it); the agent only needs the new hash, so the reply never echoes the source.
+    const saved = await request("purecut:replace", { ...args, dir: context.projectDir });
+    return {
+      status: "saved",
+      baseHash: args.baseHash,
+      hash: saved.hash,
+      changed: saved.hash !== args.baseHash,
+      sourceChars: saved.source.length,
+      next: "Pass hash as baseHash to the next edit. Call getCutContext to read the saved JSX.",
+    };
+  }
   if (name === "checkCut") return runTool("check", { id: args.id });
   if (name === "exportCut")
     return runTool("export", {
