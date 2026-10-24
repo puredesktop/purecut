@@ -5,7 +5,9 @@ import {
   createMemo,
   createSignal,
   For,
+  Match,
   onCleanup,
+  Switch,
   untrack,
   Show,
 } from 'solid-js'
@@ -21,11 +23,17 @@ import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/icon'
 import { flushPendingProjectEdits } from '@/projects/edits'
 import {
+  canRetryToday,
+  checkingAvailability,
   speechAvailability,
   transcribeSource,
+  TranscriptionError,
   type Availability,
+  type TranscriptionFailure,
+  type TranscriptionPhase,
 } from './client'
 import {
+  SpeechSceneError,
   speechScene,
   clips,
   assertCurrent,
@@ -61,16 +69,26 @@ export function SpeechPanel() {
   const [overrideCandidate, setOverrideCandidate] = createSignal<SpeechScene | null>(null)
   let approvedScene: SpeechScene['scene'] | undefined
   const [transcript, setTranscript] = createSignal<Transcript | null>(null)
-  const [availability, setAvailability] = createSignal<Availability>({
-    provider: null,
-    dailyCap: 20,
-    reason: 'Checking speech settings…',
-  })
+  const [availability, setAvailability] = createSignal<Availability>(checkingAvailability())
+  const [sceneProblem, setSceneProblem] = createSignal<{
+    reason: SpeechSceneError['reason'] | 'other'
+    message: string
+  } | null>(null)
+  const [phase, setPhase] = createSignal<TranscriptionPhase | null>(null),
+    [cancelling, setCancelling] = createSignal(false)
+  // The last transcription that ended without a transcript, for this recording.
+  const [outcome, setOutcome] = createSignal<{
+    assetId: string
+    providerId: string
+    reason: TranscriptionFailure
+    message: string
+  } | null>(null)
   const [busy, setBusy] = createSignal(false),
     [message, setMessage] = createSignal(''),
     [error, setError] = createSignal(''),
     [transcribing, setTranscribing] = createSignal(false)
-  const [cloud, setCloud] = createSignal(false),
+  // Upload consent is given to one service; choosing another asks again.
+  const [consentedTo, setConsentedTo] = createSignal<string | null>(null),
     [selected, setSelected] = createSignal<string[]>([]),
     [query, setQuery] = createSignal('')
   const [minimum, setMinimum] = createSignal(1.5),
@@ -83,6 +101,8 @@ export function SpeechPanel() {
     stopPreview: (() => void) | undefined,
     generation = 0,
     anchor: string | undefined
+  const cloud = () =>
+    !!availability().provider && consentedTo() === availability().provider!.id
   const words = createMemo(() =>
     snapshot() && transcript()
       ? timelineWords(transcript()!, clips(snapshot()!))
@@ -158,6 +178,25 @@ export function SpeechPanel() {
       setMessage('')
     }
   }
+  const openScene = (): SpeechScene => {
+    try {
+      return speechScene()
+    } catch (originalError) {
+      let candidate: SpeechScene
+      try { candidate = speechScene({ keepOtherLayers: true }) }
+      catch (layered) {
+        // Only titles and shapes, no recording: say what is missing.
+        throw layered instanceof SpeechSceneError && layered.reason === 'no-recording' ? layered : originalError
+      }
+      if (!candidate.keptLayers.length) throw originalError
+      if (approvedScene !== candidate.scene) {
+        approvedScene = undefined
+        setOverrideCandidate(candidate)
+        throw originalError
+      }
+      return candidate
+    }
+  }
   const refresh = async () => {
     const revision = ++generation
     stopPreview?.()
@@ -169,22 +208,19 @@ export function SpeechPanel() {
     setSnapshot(null)
     setOverrideCandidate(null)
     setStale(false)
+    setSceneProblem(null)
     setAvailability(await speechAvailability())
     await flushPendingProjectEdits()
     let next: SpeechScene
     try {
-      next = speechScene()
-    } catch (originalError) {
-      let candidate: SpeechScene
-      try { candidate = speechScene({ keepOtherLayers: true }) }
-      catch { throw originalError }
-      if (!candidate.keptLayers.length) throw originalError
-      if (approvedScene !== candidate.scene) {
-        approvedScene = undefined
-        setOverrideCandidate(candidate)
-        throw originalError
-      }
-      next = candidate
+      next = openScene()
+    } catch (e) {
+      if (revision === generation)
+        setSceneProblem({
+          reason: e instanceof SpeechSceneError ? e.reason : 'other',
+          message: e instanceof Error ? e.message : String(e),
+        })
+      return
     }
     const data = await loadTranscript(next)
     if (revision !== generation) return
@@ -266,28 +302,115 @@ export function SpeechPanel() {
   const transcribe = async () => {
     const state = snapshot()
     if (!state) return
+    setOutcome(null)
     const available = await speechAvailability()
     setAvailability(available)
-    controller = new AbortController()
+    // The service went away since the panel last looked: show why, send nothing.
+    if (!available.provider) return
+    const signal = (controller = new AbortController()).signal
     setTranscribing(true)
+    setCancelling(false)
+    let data: Transcript
     try {
-      const data = await transcribeSource(
+      data = await transcribeSource(
         speechSourcePath(state),
         state.asset.id,
         available,
         cloud(),
-        controller.signal,
-        setMessage,
+        signal,
+        setPhase,
       )
-      controller.signal.throwIfAborted()
-      assertCurrent(state)
+      // Keep what was paid for: the transcript belongs to the recording, so it
+      // is saved even if the scene changed meanwhile, and never asked for twice.
       await saveTranscript(state, data)
-      setTranscript(data)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setOutcome({
+        assetId: state.asset.id,
+        providerId: available.provider.id,
+        reason: e instanceof TranscriptionError ? e.reason : signal.aborted ? 'cancelled' : 'failed',
+        message: e instanceof TranscriptionError || !signal.aborted
+          ? message
+          : 'Transcription cancelled. No transcript was saved.',
+      })
+      return
     } finally {
       setTranscribing(false)
+      setCancelling(false)
+      setPhase(null)
       controller = undefined
     }
+    try {
+      assertCurrent(state)
+      setTranscript(data)
+    } catch {
+      await refresh()
+    }
   }
+  const cancelTranscription = () => {
+    setCancelling(true)
+    controller?.abort()
+  }
+  // Shown for the recording and service it happened with: choosing another
+  // service in settings and checking again clears it.
+  const lastOutcome = () => {
+    const o = outcome()
+    return o && snapshot()?.asset.id === o.assetId &&
+      (availability().state === 'checking' || availability().provider?.id === o.providerId)
+      ? o
+      : null
+  }
+  const canRetry = () => {
+    const reason = lastOutcome()?.reason
+    return !reason || canRetryToday(reason)
+  }
+  const checkAgain = () => void run(refresh)
+  const serviceName = () =>
+    availability().provider?.label ?? availability().providerLabel ?? 'the speech service'
+  const unavailableNext = () => ({
+    checking: '',
+    ready: '',
+    disabled: 'Turn on speech editing in PureCut settings, then choose Check again.',
+    'no-provider': 'Connect a transcription service in PureDesktop Settings → Speech, then choose Check again.',
+    'missing-key': `${serviceName()} needs an API key. Add it in PureDesktop Settings → Speech, then choose Check again.`,
+    'runtime-unreachable': `${serviceName()} isn’t responding on this computer. Start it, or choose another service in Settings → Speech, then choose Check again.`,
+    'no-service': 'Speech services aren’t available here. Check again later.',
+  })[availability().state]
+  const unavailableShort = () => ({
+    checking: '',
+    ready: '',
+    disabled: 'it is turned off in settings',
+    'no-provider': 'no service is set up',
+    'missing-key': `${serviceName()} needs an API key`,
+    'runtime-unreachable': `${serviceName()} isn’t responding`,
+    'no-service': 'speech services aren’t available here',
+  })[availability().state]
+  const phaseTitle = (current: TranscriptionPhase) => ({
+    starting: 'Starting',
+    waiting: 'Waiting to start',
+    uploading: 'Uploading the recording',
+    processing: 'Transcribing',
+  })[current.phase]
+  const phaseDetail = (current: TranscriptionPhase) => {
+    const name = serviceName()
+    if (current.phase === 'starting') return `Handing the recording to ${name}.`
+    if (current.phase === 'waiting')
+      return `${name} has other recordings ahead of this one. It will start on its own.`
+    if (current.phase === 'uploading')
+      return `Sending the audio to ${name}. Keep PureCut open until this finishes.`
+    return current.progress === undefined
+      ? `${name} is turning the speech into text.`
+      : `${name} is turning the speech into text · ${Math.round(current.progress * 100)}% done.`
+  }
+  // The daily-limit and already-sent messages carry their own next step.
+  const retryLater = (reason: TranscriptionFailure) =>
+    reason === 'daily-cap' || reason === 'already-attempted'
+      ? ''
+      : `${serviceName()} can take this recording again tomorrow. To try sooner, choose another service in PureDesktop Settings → Speech, then choose Check again.`
+  const recordingName = (state: SpeechScene) =>
+    state.asset.source.split(/[\\/]/).pop() || 'Recording'
+  const duration = (seconds: number) =>
+    `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
   return (
     <Show when={speechOpen()}>
       <section
@@ -329,81 +452,138 @@ export function SpeechPanel() {
             The timeline changed. Refresh the transcript before editing.
           </p>
         </Show>
+        <Show when={transcript() && availability().state !== 'ready' && availability().state !== 'checking'}>
+          <p role="note" class="cut-transcription-quiet">
+            New transcription is unavailable: {unavailableShort()}. This transcript, cleanup, captions and search keep working.
+          </p>
+        </Show>
         <Show when={!transcript()}>
           <div class="cut-transcription-start">
-          <Show when={!snapshot() && error()} fallback={<>
           <ol class="cut-transcription-steps" aria-label="Transcription steps">
-            <li classList={{ 'is-current': !snapshot() }}>1 · Add recording</li>
+            <li classList={{ 'is-current': sceneProblem()?.reason === 'no-recording' }}>1 · Add recording</li>
             <li classList={{ 'is-current': !!snapshot() }}>2 · Transcribe</li>
             <li>3 · Edit text</li>
           </ol>
-          <h2>{transcribing() ? 'Creating your transcript' : snapshot() ? 'Ready to transcribe' : 'Start with a recording'}</h2>
-          <Show when={snapshot()} fallback={<p>Import a video or audio recording and add it to a scene. Its spoken words will appear here after transcription.</p>}>
-            <div class="cut-recording-card">
-              <span class="text-xs text-muted-foreground">RECORDING IN THIS SCENE</span>
-              <strong>{speechSourcePath(snapshot()!).split('/').pop()}</strong>
-              <span>{Math.floor(snapshot()!.asset.duration / 60)}:{String(Math.floor(snapshot()!.asset.duration % 60)).padStart(2, '0')} · {availability().provider?.label || 'Speech service needed'}</span>
-            </div>
-          </Show>
-          <Show
-            when={availability().provider}
-            fallback={
-              <p class="text-sm text-muted-foreground">
-                {availability().reason} Open Settings → Speech to connect a service, then Refresh here. Transcription is optional; the timeline and export still work.
-              </p>
-            }
-          >
-            <p class="text-sm">
-              We’ll turn the speech into a transcript. Then select words to remove that part of the video, with undo available. Your original recording stays intact.
-            </p>
-            <Show when={availability().provider?.kind === 'cloud'}>
-              <label class="block text-sm my-2">
-                <input
-                  type="checkbox"
-                  checked={cloud()}
-                  onChange={e => setCloud(e.currentTarget.checked)}
-                />{' '}
-                Allow this recording to be uploaded to{' '}
-                {availability().provider?.label} for transcription.
-              </label>
-            </Show>
-            <Show when={!transcribing()}><Button
-              disabled={
-                !snapshot() ||
-                busy() ||
-                (availability().provider?.kind === 'cloud' && !cloud())
-              }
-              onClick={() => void run(transcribe)}
-            >
-              Transcribe recording
-            </Button></Show>
-          </Show>
-          </>}>
-            <h2>This scene isn’t ready for transcription</h2>
-            <p role="alert">{error()}</p>
-            <Show when={overrideCandidate()}>
-              <p>You can edit just the recording and captions. Text and graphics will stay at their current times, so you may need to move them after cutting speech.</p>
-              <Button disabled={busy()} onClick={() => void run(async () => {
-                const candidate = overrideCandidate()
-                if (!candidate) return
-                assertCurrent(candidate)
-                approvedScene = candidate.scene
-                await refresh()
-              })}>Edit recording only</Button>
-            </Show>
-            <p>Once the scene is ready, choose Refresh scene. Nothing has been uploaded or changed.</p>
-            <Button disabled={busy()} onClick={() => void run(refresh)}>Refresh scene</Button>
-          </Show>
+          <Switch fallback={<p class="cut-transcription-quiet">Looking at this scene…</p>}>
+            <Match when={sceneProblem()?.reason === 'no-recording'}>
+              <h2>Start with a recording</h2>
+              <p>Import a video or audio recording and add it to this scene. Its spoken words will appear here once it is transcribed.</p>
+              <Button variant="outline" disabled={busy()} onClick={checkAgain}>Check scene again</Button>
+            </Match>
+            <Match when={sceneProblem()}>
+              {problem => <>
+                <h2>{problem().reason === 'unsupported' ? 'This scene can’t be transcribed as it is' : 'The transcript couldn’t be opened'}</h2>
+                <p role="alert">{problem().message}</p>
+                <Show when={overrideCandidate()}>
+                  <p>You can edit just the recording and captions. Text and graphics will stay at their current times, so you may need to move them after cutting speech.</p>
+                  <Button disabled={busy()} onClick={() => void run(async () => {
+                    const candidate = overrideCandidate()
+                    if (!candidate) return
+                    assertCurrent(candidate)
+                    approvedScene = candidate.scene
+                    await refresh()
+                  })}>Edit recording only</Button>
+                </Show>
+                <p>Nothing has been uploaded or changed. Once the scene is ready, check it again.</p>
+                <Button variant={overrideCandidate() ? 'ghost' : 'outline'} disabled={busy()} onClick={checkAgain}>Check scene again</Button>
+              </>}
+            </Match>
+            <Match when={snapshot()}>
+              {state => <>
+                <h2>{phase() ? 'Creating your transcript' : ['ready', 'checking'].includes(availability().state) ? 'Ready to transcribe' : 'Transcribe this recording'}</h2>
+                <div class="cut-recording-card">
+                  <span class="cut-recording-label">Recording in this scene</span>
+                  <strong>{recordingName(state())}</strong>
+                  <span>{duration(state().asset.duration)} · {availability().provider?.label ?? availability().providerLabel ?? 'No speech service'}</span>
+                </div>
+                <Show when={phase()} fallback={
+                  <Switch>
+                    <Match when={availability().state === 'checking'}>
+                      <p class="cut-transcription-quiet">Checking the speech service…</p>
+                    </Match>
+                    <Match when={availability().state !== 'ready'}>
+                      <div class="cut-transcription-problem" data-state={availability().state}>
+                        <strong>{availability().state === 'disabled' ? 'Transcription is turned off' : 'Transcription isn’t available yet'}</strong>
+                        <p>{unavailableNext()}</p>
+                        <Button variant="outline" disabled={busy()} onClick={checkAgain}>Check again</Button>
+                      </div>
+                      <p class="cut-transcription-quiet">Transcription is optional. Editing and export work without it.</p>
+                    </Match>
+                    <Match when={availability().provider}>
+                      {provider => <>
+                        <Show when={lastOutcome()}>
+                          {last => (
+                            <Show when={last().reason !== 'cancelled'} fallback={
+                              <p role="status" class="cut-transcription-quiet" data-outcome="cancelled">{last().message}</p>
+                            }>
+                              <div role="alert" class="cut-transcription-problem" data-outcome={last().reason}>
+                                <strong>Transcription didn’t finish</strong>
+                                <p>{last().message}</p>
+                                <Show when={!canRetry()}>
+                                  <Show when={retryLater(last().reason)}>{next => <p>{next()}</p>}</Show>
+                                  <Button variant="outline" disabled={busy()} onClick={checkAgain}>Check again</Button>
+                                </Show>
+                              </div>
+                            </Show>
+                          )}
+                        </Show>
+                        <Show when={canRetry()}>
+                          <Show when={!lastOutcome()}>
+                            <p>
+                              We’ll turn the speech into a transcript. Then select words to remove that part of the video, with undo available. Your original recording stays intact.
+                            </p>
+                          </Show>
+                          <Show when={provider().kind === 'cloud'}>
+                            <label class="cut-transcription-consent">
+                              <input
+                                type="checkbox"
+                                checked={cloud()}
+                                onChange={e => setConsentedTo(e.currentTarget.checked ? provider().id : null)}
+                              />{' '}
+                              Allow this recording to be uploaded to{' '}
+                              {provider().label} for transcription.
+                            </label>
+                          </Show>
+                          <Button
+                            disabled={busy() || (provider().kind === 'cloud' && !cloud())}
+                            onClick={() => void run(transcribe)}
+                          >
+                            {lastOutcome() && lastOutcome()!.reason !== 'cancelled' ? 'Try again' : 'Transcribe recording'}
+                          </Button>
+                        </Show>
+                      </>}
+                    </Match>
+                  </Switch>
+                }>
+                  {current => (
+                    <div class="cut-transcription-job" role="status" aria-live="polite" data-phase={current().phase}>
+                      <strong>{cancelling() ? 'Cancelling…' : phaseTitle(current())}</strong>
+                      <p>{phaseDetail(current())}</p>
+                      <Show
+                        when={current().phase === 'processing' ? (current() as { progress?: number }).progress : undefined}
+                        fallback={<div class="cut-transcription-progress is-indeterminate" aria-hidden="true"><span /></div>}
+                      >
+                        {progress => (
+                          <div class="cut-transcription-progress" role="progressbar" aria-label="Transcription progress"
+                            aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress() * 100)}>
+                            <span style={{ width: `${Math.round(progress() * 100)}%` }} />
+                          </div>
+                        )}
+                      </Show>
+                      <Button variant="outline" disabled={cancelling()} onClick={cancelTranscription}>
+                        Cancel transcription
+                      </Button>
+                    </div>
+                  )}
+                </Show>
+              </>}
+            </Match>
+          </Switch>
           </div>
         </Show>
-        <Show when={busy()}>
+        <Show when={busy() && !transcribing()}>
           <div role="status" class="text-sm">
-            {message() || (transcribing() ? 'Preparing the recording…' : 'Loading transcript…')}{' '}
-            <Show when={transcribing()}>
-              <Button variant="ghost" onClick={() => controller?.abort()}>
-                Cancel transcription
-              </Button>
-            </Show>
+            {message() || 'Loading transcript…'}
           </div>
         </Show>
         <Show when={transcript()}>
