@@ -156,6 +156,20 @@ try {
   assert.equal((await fixtureState()).started, 1, 'cancelled status does not start another job')
   await shots('cancelled')
 
+  // Today’s limit: refused, then offered again once the limit is raised.
+  await page.evaluate(() => window.speechFixture.setJobs([{ state: 'done', result: { status: 'skipped', reason: 'daily-cap' } }]))
+  await transcribe.click()
+  await panel.getByRole('alert').getByText('Today’s limit of 20 transcriptions is used up.', { exact: false }).waitFor()
+  assert.equal(await transcribe.count(), 0, 'no retry while the limit stands')
+  await checkAgain.click()
+  await panel.getByRole('alert').waitFor()
+  assert.equal(await transcribe.count(), 0, 'checking again under the same limit still refuses')
+  await page.evaluate(() => window.speechFixture.setSettings({ diarizationDailyCap: 40 }))
+  await checkAgain.click()
+  await transcribe.waitFor()
+  assert.equal(await panel.getByRole('alert').count(), 0, 'a raised limit clears the refusal')
+  assert.equal((await fixtureState()).started, 2, 'checking eligibility sends nothing')
+
   // A failure: says what happened and why sending again today won’t work.
   await page.evaluate(() => window.speechFixture.setJobs([{ state: 'failed', result: { status: 'skipped', reason: 'unavailable' } }]))
   await transcribe.click()
@@ -168,7 +182,7 @@ try {
   await shots('failed')
   await checkAgain.click()
   await failure.getByText('Transcription didn’t finish', { exact: true }).waitFor()
-  assert.equal((await fixtureState()).started, 2, 'checking again after a failure sends nothing')
+  assert.equal((await fixtureState()).started, 3, 'checking again after a failure sends nothing')
 
   // Another service clears it; this one completes.
   await page.evaluate(() => {
@@ -246,6 +260,24 @@ try {
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
   assert.equal(await panel.getByRole('note').count(), 0)
+  // A saved transcript that cannot be read says so, offers a way back and sends nothing.
+  const startedBeforeDamage = (await fixtureState()).started
+  const checkScene = panel.getByRole('button', { name: 'Check scene again', exact: true })
+  for (const kind of ['malformed', 'unreadable']) {
+    await page.evaluate(k => window.speechFixture.breakTranscript(k), kind)
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await panel.getByText('The saved transcript couldn’t be opened', { exact: true }).waitFor()
+    await panel.getByText('It has not been changed or replaced.', { exact: false }).waitFor()
+    await checkScene.waitFor()
+    assert.equal(await panel.getByText('Looking at this scene…').count(), 0, `${kind}: not left looking busy`)
+    assert.equal(await transcribe.count(), 0)
+    await shots(`transcript-${kind}`)
+  }
+  await page.getByText('Permission denied', { exact: false }).waitFor()
+  assert.equal((await fixtureState()).started, startedBeforeDamage, 'a damaged transcript sends nothing')
+  await page.evaluate(() => window.speechFixture.breakTranscript(null))
+  await checkScene.click()
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
   await mkdir(out, { recursive: true })
   for (const width of [1440, 640, 375]) {
     await page.setViewportSize({ width, height: 900 })

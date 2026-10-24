@@ -35,7 +35,10 @@ settings, then **Check again**). While a job runs it shows **Waiting to start**,
 percentage only when the provider measures one, and **Cancel transcription**.
 The host accepts a recording once a day per service, counting failed attempts
 but not cancelled ones, so after a failure the panel offers another service or
-tomorrow rather than a retry the host would refuse. A finished transcript is
+tomorrow rather than a retry the host would refuse. **Check again** offers it
+again once the UTC day changes, or, after the daily limit, once the limit is
+raised. A saved transcript that cannot be read or is damaged is reported as
+such, with **Check scene again**, and is never replaced or re-requested. A finished transcript is
 saved even if the scene changed meanwhile, so it is never requested twice.
 Checking status never starts a job or uploads anything.
 

@@ -141,6 +141,29 @@ export type TranscriptionFailure =
  */
 export const canRetryToday = (reason: TranscriptionFailure) =>
   ['cancelled', 'timed-out', 'consent-required', 'missing-key', 'runtime-unreachable', 'unavailable'].includes(reason)
+/** The host counts attempts per UTC day. */
+export const utcDay = (now: Date) => now.toISOString().slice(0, 10)
+export type PastOutcome = {
+  reason: TranscriptionFailure
+  /** utcDay() when it happened. */
+  day: string
+  /** The daily limit in force then. */
+  dailyCap: number
+}
+/**
+ * Whether a past outcome still says anything about sending the recording now.
+ * A new UTC day lifts every once-a-day refusal, and a raised daily limit
+ * lifts `daily-cap`; then the panel offers transcription again.
+ */
+export function outcomeStillApplies(
+  outcome: PastOutcome,
+  now: Date,
+  availability: Pick<Availability, 'dailyCap'>,
+) {
+  if (outcome.day !== utcDay(now)) return false
+  if (outcome.reason === 'daily-cap' && availability.dailyCap > outcome.dailyCap) return false
+  return true
+}
 /** A transcription that ended without a transcript. Nothing is saved. */
 export class TranscriptionError extends Error {
   constructor(

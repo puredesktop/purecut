@@ -268,3 +268,65 @@ for (const reason of ['failed', 'no-speech', 'no-word-timing', 'daily-cap', 'alr
   assert.equal(c.canRetryToday(reason), false, reason)
 console.log('PASS speech jobs: consent gate, waiting/uploading/processing, every skip reason, failure, cancellation, empty results and retry rules')
 globalThis.setTimeout = realSetTimeout
+
+// ── A refusal lasts only as long as its cause ──────────────────────────────
+const noon = new Date('2026-10-24T12:00:00Z')
+const past = (reason, dailyCap = 20) => ({ reason, day: c.utcDay(noon), dailyCap })
+assert.equal(c.outcomeStillApplies(past('daily-cap'), noon, { dailyCap: 20 }), true)
+assert.equal(c.outcomeStillApplies(past('daily-cap'), noon, { dailyCap: 30 }), false, 'a raised limit lifts daily-cap')
+assert.equal(c.outcomeStillApplies(past('daily-cap', 30), noon, { dailyCap: 20 }), true, 'a lowered limit does not')
+assert.equal(c.outcomeStillApplies(past('failed'), noon, { dailyCap: 30 }), true, 'a raised limit does not lift a failure')
+const nextDay = new Date('2026-10-25T00:00:01Z')
+for (const reason of ['daily-cap', 'already-attempted', 'failed', 'no-speech', 'no-word-timing'])
+  assert.equal(c.outcomeStillApplies(past(reason), nextDay, { dailyCap: 20 }), false, `${reason} ends at the UTC day boundary`)
+assert.equal(c.outcomeStillApplies(past('failed'), new Date('2026-10-24T23:59:59Z'), { dailyCap: 20 }), true)
+// Checking eligibility again (what Check again does) only reads status.
+reset()
+mock.settings = { diarizationDailyCap: 40 }
+mock.status.providers = [assembly()]
+const raised = await c.speechAvailability()
+assert.equal(c.outcomeStillApplies(past('daily-cap'), noon, raised), false)
+noJobs()
+console.log('PASS speech retry: a raised limit or a new UTC day offers transcription again, and checking sends nothing')
+
+// ── A saved transcript that cannot be read fails loudly ────────────────────
+const disk = { entries: [], read: null }
+globalThis.__speechDisk = disk
+const store = await build({
+  entryPoints: ['purecut/speech/store.ts'],
+  bundle: true,
+  write: false,
+  platform: 'node',
+  format: 'esm',
+  plugins: [{
+    name: 'files-mock',
+    setup(b) {
+      b.onResolve({ filter: /lib\/platform-files$/ }, args => ({ path: args.path, namespace: 'files-mock' }))
+      b.onLoad({ filter: /.*/, namespace: 'files-mock' }, () => ({
+        loader: 'js',
+        contents: `
+          const d = globalThis.__speechDisk
+          export const join = (...p) => p.join('/')
+          export const projectPath = (dir, p) => dir + '/' + p
+          export const files = {
+            list: async () => d.entries,
+            read: async () => d.read(),
+            write: async () => { throw Error('not used') },
+          }
+        `,
+      }))
+    },
+  }],
+})
+const s = await import(`data:text/javascript;base64,${Buffer.from(store.outputFiles[0].text).toString('base64')}`)
+const scene = { session: { project: { dir: () => '/project' } }, asset: { id: 'asset1', source: 'talk.mp4' } }
+disk.entries = []
+assert.equal(await s.loadTranscript(scene), null, 'no saved transcript is not an error')
+disk.entries = [{ name: 'speech-asset1.json', path: '/project/speech-asset1.json', isDirectory: false }]
+disk.read = async () => { throw Error('Permission denied') }
+await assert.rejects(s.loadTranscript(scene), /Permission denied/)
+disk.read = async () => '{"version":1,"assetId":"asset1","words":[{'
+await assert.rejects(s.loadTranscript(scene), SyntaxError)
+disk.read = async () => JSON.stringify({ version: 1, assetId: 'other', speakers: {}, words: [] })
+await assert.rejects(s.loadTranscript(scene), /mismatched/)
+console.log('PASS speech load: unreadable, malformed and mismatched transcripts reject instead of passing as empty')

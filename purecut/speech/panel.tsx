@@ -25,10 +25,13 @@ import { flushPendingProjectEdits } from '@/projects/edits'
 import {
   canRetryToday,
   checkingAvailability,
+  outcomeStillApplies,
   speechAvailability,
   transcribeSource,
   TranscriptionError,
+  utcDay,
   type Availability,
+  type PastOutcome,
   type TranscriptionFailure,
   type TranscriptionPhase,
 } from './client'
@@ -71,7 +74,7 @@ export function SpeechPanel() {
   const [transcript, setTranscript] = createSignal<Transcript | null>(null)
   const [availability, setAvailability] = createSignal<Availability>(checkingAvailability())
   const [sceneProblem, setSceneProblem] = createSignal<{
-    reason: SpeechSceneError['reason'] | 'other'
+    reason: SpeechSceneError['reason'] | 'transcript' | 'other'
     message: string
   } | null>(null)
   const [phase, setPhase] = createSignal<TranscriptionPhase | null>(null),
@@ -80,9 +83,8 @@ export function SpeechPanel() {
   const [outcome, setOutcome] = createSignal<{
     assetId: string
     providerId: string
-    reason: TranscriptionFailure
     message: string
-  } | null>(null)
+  } & PastOutcome | null>(null)
   const [busy, setBusy] = createSignal(false),
     [message, setMessage] = createSignal(''),
     [error, setError] = createSignal(''),
@@ -210,21 +212,31 @@ export function SpeechPanel() {
     setStale(false)
     setSceneProblem(null)
     setAvailability(await speechAvailability())
-    await flushPendingProjectEdits()
+    const problem = (reason: SpeechSceneError['reason'] | 'transcript' | 'other', e: unknown) => {
+      if (revision === generation)
+        setSceneProblem({ reason, message: e instanceof Error ? e.message : String(e) })
+    }
     let next: SpeechScene
     try {
+      await flushPendingProjectEdits()
       next = openScene()
     } catch (e) {
-      if (revision === generation)
-        setSceneProblem({
-          reason: e instanceof SpeechSceneError ? e.reason : 'other',
-          message: e instanceof Error ? e.message : String(e),
-        })
-      return
+      return problem(e instanceof SpeechSceneError ? e.reason : 'other', e)
     }
-    const data = await loadTranscript(next)
+    let data: Transcript | null
+    try {
+      data = await loadTranscript(next)
+    } catch (e) {
+      // An unreadable or damaged saved transcript: say so, never fall through
+      // to a screen that looks like it is still loading.
+      return problem('transcript', e)
+    }
     if (revision !== generation) return
-    assertCurrent(next)
+    try {
+      assertCurrent(next)
+    } catch (e) {
+      return problem('other', e)
+    }
     setSnapshot(next)
     setTranscript(data)
   }
@@ -328,6 +340,8 @@ export function SpeechPanel() {
       setOutcome({
         assetId: state.asset.id,
         providerId: available.provider.id,
+        day: utcDay(new Date()),
+        dailyCap: available.dailyCap,
         // Any other error came before a job started, or stopped one that the
         // client then cancelled; neither counts against today, so it may be retried.
         reason: e instanceof TranscriptionError ? e.reason : signal.aborted ? 'cancelled' : 'unavailable',
@@ -365,12 +379,12 @@ export function SpeechPanel() {
   }
   // Shown for the recording and service it happened with: choosing another
   // service in settings and checking again clears it.
+  // A new day or a raised daily limit clears it too; Check again re-reads both.
   const lastOutcome = () => {
-    const o = outcome()
-    return o && snapshot()?.asset.id === o.assetId &&
-      (availability().state === 'checking' || availability().provider?.id === o.providerId)
-      ? o
-      : null
+    const o = outcome(), a = availability()
+    if (!o || snapshot()?.asset.id !== o.assetId) return null
+    if (a.state === 'checking') return o
+    return a.provider?.id === o.providerId && outcomeStillApplies(o, new Date(), a) ? o : null
   }
   const canRetry = () => {
     const reason = lastOutcome()?.reason
@@ -484,8 +498,11 @@ export function SpeechPanel() {
             </Match>
             <Match when={sceneProblem()}>
               {problem => <>
-                <h2>{problem().reason === 'unsupported' ? 'This scene can’t be transcribed as it is' : 'The transcript couldn’t be opened'}</h2>
-                <p role="alert">{problem().message}</p>
+                <h2>{problem().reason === 'unsupported' ? 'This scene can’t be transcribed as it is'
+                  : problem().reason === 'transcript' ? 'The saved transcript couldn’t be opened' : 'The transcript couldn’t be opened'}</h2>
+                <p role="alert">{problem().reason === 'transcript'
+                  ? `The transcript saved with this recording couldn’t be read (${problem().message}). It has not been changed or replaced.`
+                  : problem().message}</p>
                 <Show when={overrideCandidate()}>
                   <p>You can edit just the recording and captions. Text and graphics will stay at their current times, so you may need to move them after cutting speech.</p>
                   <Button disabled={busy()} onClick={() => void run(async () => {
@@ -496,7 +513,9 @@ export function SpeechPanel() {
                     await refresh()
                   })}>Edit recording only</Button>
                 </Show>
-                <p>Nothing has been uploaded or changed. Once the scene is ready, check it again.</p>
+                <p>{problem().reason === 'transcript'
+                  ? 'Nothing has been uploaded. If it is being saved or synced right now, check again in a moment.'
+                  : 'Nothing has been uploaded or changed. Once the scene is ready, check it again.'}</p>
                 <Button variant={overrideCandidate() ? 'ghost' : 'outline'} disabled={busy()} onClick={checkAgain}>Check scene again</Button>
               </>}
             </Match>

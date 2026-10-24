@@ -93,7 +93,10 @@ export async function speechFixture(host: HTMLElement) {
     return originalCall(method, args)
   }
   files.root = async () => '/speech-fixture'
+  let unreadable = false,
+    savedTranscript: string | undefined
   files.read = async p => {
+    if (unreadable && /\/speech-[^/]+\.json$/.test(p)) throw Error('Permission denied')
     if (!text.has(p)) throw Error('Missing file')
     return text.get(p)!
   }
@@ -230,6 +233,14 @@ export async function speechFixture(host: HTMLElement) {
     /** Job states to report in turn (the last repeats); null completes at once. */
     setJobs(next: any[] | null) {
       jobs = next
+    },
+    /** Damage the saved transcript ('malformed'), block reading it ('unreadable') or put it back (null). */
+    breakTranscript(kind: 'malformed' | 'unreadable' | null) {
+      const path = [...text.keys()].find(p => /\/speech-[^/]+\.json$/.test(p))
+      if (!path) throw Error('No saved transcript')
+      savedTranscript ??= text.get(path)
+      unreadable = kind === 'unreadable'
+      text.set(path, kind === 'malformed' ? '{"version":1,"words":[{' : savedTranscript!)
     },
     async removeRecording() {
       const state = speechScene({ keepOtherLayers: true })
