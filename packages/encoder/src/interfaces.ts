@@ -109,6 +109,12 @@ export interface EncoderConfig {
 	target?: FileSystemFileHandle | WritableFileTarget;
 
 	/**
+	 * Size in bytes at which a streamed target flushes encoded data.
+	 * @default mediabunny's StreamTarget default
+	 */
+	chunkSize?: number;
+
+	/**
 	 * Defines the progress callback
 	 */
 	onProgress?: (progress: EncoderProgress) => void;

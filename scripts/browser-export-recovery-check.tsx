@@ -36,6 +36,8 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
   let failWrites = false;
   let failChunks = false;
   let writeAttempts = 0;
+  let chunkAttempts = 0;
+  let videoFramesAdded = 0;
   let aborts = 0;
   const check = (value: unknown, message: string) => { if (!value) throw Error(message); };
   const wait = async (predicate: () => unknown, message: string) => {
@@ -68,7 +70,8 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
       return { id: 'retry-export-stream' };
     }
     if (channel === MAIN_CHANNELS.FILE_WRITE_CHUNK) {
-      if (failChunks) throw Error('Fixture destination filled during export');
+      chunkAttempts++;
+      if (failChunks && chunkAttempts > 1) throw Error('Fixture destination filled during export');
       return {};
     }
     if (channel === MAIN_CHANNELS.FILE_WRITE_CLOSE) return {};
@@ -132,7 +135,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     lastFailure = current;
     const description = String(current.description ?? '');
     check(description.includes(nextStep), `${stage} failure must explain the next step: ${description}`);
-    check(description.includes('Details:'), `${stage} failure must separate error details from the next step`);
+    check(description.includes('. Details:'), `${stage} failure must separate error details from the next step`);
     check(current.duration === Infinity, `${stage} failure must keep Retry available`);
     check(JSON.stringify(config) === JSON.stringify(configSnapshot), `${stage} failure changed the selected settings`);
   };
@@ -192,21 +195,31 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     failWrites = false;
     toast.dismiss();
 
+    const chunkedConfig: ExportConfig = { ...config, chunkSize: 1024 };
+    CanvasSource.prototype.add = (async function (this: CanvasSource, ...args: Parameters<CanvasSource['add']>) {
+      await originalVideoAdd.apply(this, args);
+      videoFramesAdded++;
+    }) as typeof originalVideoAdd;
     failChunks = true;
-    await api.exportScene(scene.entity, config);
+    await api.exportScene(scene.entity, chunkedConfig);
     await expectFailure('write', 'free space');
+    CanvasSource.prototype.add = originalVideoAdd;
+    check(chunkAttempts === 2, 'the chunk-write fixture must fail after a successful chunk write');
+    check(videoFramesAdded > 0 && videoFramesAdded < 24, 'the chunk write must fail while frames are still being encoded');
     check(aborts === 4, 'a chunk-write failure must dispose its partial file');
     const deletedSceneRetry = retryAction();
     failChunks = false;
     toast.dismiss();
 
     await rememberProjectBundle(projectId, RECT_BUNDLE.replace('end: 1', 'end: 600'));
+    const beforeCancelWriteAttempts = writeAttempts;
     const pending = api.exportScene(scene.entity, config);
     await wait(() => renderOverlay(), 'long export did not start');
     await api.exportScene(scene.entity, { ...config, video: { ...config.video, bitrate: 123_456 } });
     const busy = toast.getHistory().find(entry => 'title' in entry && entry.title === 'Export already running');
     check(busy, 'a concurrent export must explain that an export is already running');
     check(!(busy as { action?: unknown }).action, 'a busy export must not offer Retry');
+    await wait(() => writeAttempts > beforeCancelWriteAttempts, 'long export did not open its output file');
     const beforeCancelAborts = aborts;
     cancelRender();
     await pending;
@@ -215,7 +228,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     await rememberProjectBundle(projectId, RECT_BUNDLE);
     await deletedSceneRetry();
     await wait(() => history.length === 1, 'successful retry did not finish');
-    check(JSON.stringify((history[0] as { config: unknown }).config) === JSON.stringify(configSnapshot), 'successful retry history must preserve every export setting');
+    check(JSON.stringify((history[0] as { config: unknown }).config) === JSON.stringify(chunkedConfig), 'successful retry history must preserve every export setting');
     check(toast.getHistory().some(entry => 'title' in entry && entry.title === 'Export complete'), 'successful retry must report completion');
 
     scene.entity.destroy();

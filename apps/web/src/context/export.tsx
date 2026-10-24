@@ -64,7 +64,7 @@ export function ExportProvider(props: { children: JSX.Element }) {
     toast.dismiss(failureToast);
     toast.error("Export failed", {
       id: failureToast,
-      description: `${nextStep[error.stage]}\nDetails: ${error.message}`,
+      description: `${nextStep[error.stage]} Details: ${error.message}`,
       duration: Infinity,
       closeButton: true,
       action: {

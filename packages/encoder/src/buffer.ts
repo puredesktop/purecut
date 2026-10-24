@@ -22,7 +22,8 @@ export class TargetBuffer {
   }
 
   public static async create(
-    handle?: FileSystemFileHandle | WritableFileTarget
+    handle?: FileSystemFileHandle | WritableFileTarget,
+    chunkSize?: number
   ): Promise<TargetBuffer> {
     if (handle) {
       const fileStream = await handle.createWritable();
@@ -41,7 +42,7 @@ export class TargetBuffer {
           catch (error) { throw asExportError('write', error); }
         },
       });
-      return new TargetBuffer(new StreamTarget(stream, { chunked: true }), false, handle);
+      return new TargetBuffer(new StreamTarget(stream, { chunked: true, chunkSize }), false, handle);
     }
 
     return new TargetBuffer(new BufferTarget(), 'in-memory', undefined);
