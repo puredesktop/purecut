@@ -344,6 +344,60 @@ const FONT_WEIGHTS: Record<string, string> = {
 	bold: '700',
 };
 
+type TextStyleValues = {
+	leading: number | undefined;
+	fontSize: number | undefined;
+	fontFamily: string | undefined;
+	fontWeight: string | undefined;
+	fontStyle: FontStyle | undefined;
+	textAlign: TextAlign | undefined;
+	textBaseline: TextBaseline | undefined;
+	textCase: TextCase | undefined;
+	letterSpacing: number | undefined;
+};
+
+/**
+ * What an authored text-style prop writes into TextStyle: the one field it
+ * owns, parsed (`undefined` for a value that says nothing usable). Null for a
+ * prop that is not a text-style prop. Shared by `setProperty` and
+ * `captionTextStyle`, so a preview of a caption reads its style by the same
+ * rules the document writes it.
+ */
+function textStyleOverride(name: string, value: unknown): Partial<TextStyleValues> | null {
+	switch (name) {
+		case 'fontSize': {
+			const size = toNumber(value);
+			return { fontSize: size !== undefined && size > 0 ? Math.round(size) : undefined };
+		}
+		case 'fontFamily': {
+			const family = typeof value === 'string' ? value.trim() : '';
+			return { fontFamily: family || undefined };
+		}
+		case 'fontWeight': {
+			// Authored as a CSS keyword or a number; the trait keeps the numeric string.
+			const weight = value === undefined || value === null ? '' : String(value).trim();
+			const numeric = FONT_WEIGHTS[weight] ?? weight;
+			return { fontWeight: numeric && Number.isFinite(Number(numeric)) ? numeric : undefined };
+		}
+		case 'fontStyle':
+			return { fontStyle: typeof value === 'string' ? FONT_STYLES[value] : undefined };
+		case 'textAlign':
+			return { textAlign: typeof value === 'string' ? TEXT_ALIGNS[value] : undefined };
+		case 'textBaseline':
+			return { textBaseline: typeof value === 'string' ? TEXT_BASELINES[value] : undefined };
+		case 'textCase':
+			return { textCase: typeof value === 'string' ? TEXT_CASES[value] : undefined };
+		case 'letterSpacing':
+			return { letterSpacing: toNumber(value) };
+		case 'leading': {
+			const leading = toNumber(value);
+			return { leading: leading !== undefined && leading > 0 ? leading : undefined };
+		}
+		default:
+			return null;
+	}
+}
+
 // The authored props that overwrite a caption preset's base coat (its
 // TextStyle and its intrinsic `fill`). The `preset` handler re-runs them
 // after writing the preset's defaults: props are not applied in authored
@@ -360,6 +414,29 @@ const CAPTION_OVERRIDE_PROPS = [
 	'leading',
 	'fill',
 ] as const;
+
+/**
+ * The text style and base fill a caption with these authored props would
+ * have under preset `type`: the preset's base coat with the authored
+ * overrides written over it, exactly as the `preset` handler does. For
+ * previewing a preset the caption does not have yet. A field an authored
+ * value leaves `undefined` is undefined here too, as it is on the entity;
+ * `fill` is null where the document removes the base fill.
+ */
+export function captionTextStyle(
+	type: CaptionType,
+	props: Record<string, unknown>,
+): { style: Partial<TextStyleValues>; fill: number | null | undefined } {
+	const style: Partial<TextStyleValues> = { ...CAPTION_PRESET_STYLES[type] };
+	let fill: number | null | undefined = CAPTION_PRESET_FILLS[type];
+	for (const prop of CAPTION_OVERRIDE_PROPS) {
+		const authored = props[prop];
+		if (authored === undefined) continue;
+		if (prop === 'fill') fill = parseColor(authored);
+		else Object.assign(style, textStyleOverride(prop, authored));
+	}
+	return { style, fill };
+}
 
 
 /**
@@ -1312,55 +1389,17 @@ export class RuntimeDocument implements ProjectDocument<SceneNode> {
 				}
 				return;
 			}
-			case 'fontSize': {
-				const size = toNumber(value);
-				entity.add(TextStyle);
-				entity.set(TextStyle, { fontSize: size !== undefined && size > 0 ? Math.round(size) : undefined });
-				return;
-			}
-			case 'fontFamily': {
-				const family = typeof value === 'string' ? value.trim() : '';
-				entity.add(TextStyle);
-				entity.set(TextStyle, { fontFamily: family || undefined });
-				return;
-			}
-			case 'fontWeight': {
-				// Authored as a CSS keyword or a number; the trait keeps the numeric string.
-				const weight = value === undefined || value === null ? '' : String(value).trim();
-				const numeric = FONT_WEIGHTS[weight] ?? weight;
-				entity.add(TextStyle);
-				entity.set(TextStyle, { fontWeight: numeric && Number.isFinite(Number(numeric)) ? numeric : undefined });
-				return;
-			}
-			case 'fontStyle': {
-				entity.add(TextStyle);
-				entity.set(TextStyle, { fontStyle: typeof value === 'string' ? FONT_STYLES[value] : undefined });
-				return;
-			}
-			case 'textAlign': {
-				entity.add(TextStyle);
-				entity.set(TextStyle, { textAlign: typeof value === 'string' ? TEXT_ALIGNS[value] : undefined });
-				return;
-			}
-			case 'textBaseline': {
-				entity.add(TextStyle);
-				entity.set(TextStyle, { textBaseline: typeof value === 'string' ? TEXT_BASELINES[value] : undefined });
-				return;
-			}
-			case 'textCase': {
-				entity.add(TextStyle);
-				entity.set(TextStyle, { textCase: typeof value === 'string' ? TEXT_CASES[value] : undefined });
-				return;
-			}
-			case 'letterSpacing': {
-				entity.add(TextStyle);
-				entity.set(TextStyle, { letterSpacing: toNumber(value) });
-				return;
-			}
+			case 'fontSize':
+			case 'fontFamily':
+			case 'fontWeight':
+			case 'fontStyle':
+			case 'textAlign':
+			case 'textBaseline':
+			case 'textCase':
+			case 'letterSpacing':
 			case 'leading': {
-				const leading = toNumber(value);
 				entity.add(TextStyle);
-				entity.set(TextStyle, { leading: leading !== undefined && leading > 0 ? leading : undefined });
+				entity.set(TextStyle, textStyleOverride(name, value)!);
 				return;
 			}
 			case 'preset': {

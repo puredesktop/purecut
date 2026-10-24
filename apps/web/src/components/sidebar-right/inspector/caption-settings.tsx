@@ -36,6 +36,7 @@ import {
 import type { CaptionPresetOption } from "./caption-types";
 import type { Entity } from "koota";
 import { CaptionCues } from './caption-cues';
+import { CaptionFootageCheck } from './caption-footage-check';
 
 type CaptionSettingsProps = {
   selection: Entity[];
@@ -47,7 +48,9 @@ type CaptionSettingsProps = {
  * Everything else about a caption's look is the preset's base coat — the
  * document writes it onto the entity and lets authored style props (font,
  * position) overwrite it — and not in the file at all unless the user edits
- * it, which is why this panel is as short as it is.
+ * it, which is why the style controls are as few as they are. Below them,
+ * the presets on the footage (`CaptionFootageCheck`) and the caption text
+ * with its long-cue warnings (`CaptionCues`).
  */
 export function CaptionSettings(props: CaptionSettingsProps) {
   const editor = useEditor();
@@ -128,7 +131,14 @@ export function CaptionSettings(props: CaptionSettingsProps) {
         )}
       </For>
 
-      <Show when={entity()} keyed>{selected => <CaptionCues entity={selected} />}</Show>
+      <Show when={entity()} keyed>{selected => <>
+        <CaptionFootageCheck
+          entity={selected}
+          current={preset()}
+          currentColors={slots().map((_, i) => slotColor(i))}
+        />
+        <CaptionCues entity={selected} />
+      </>}</Show>
       <Show when={openSlot() !== null}>
         <FloatingInspector open anchorRef={anchorRef}>
           <FloatingInspectorHeader>
