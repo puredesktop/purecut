@@ -226,9 +226,9 @@ export const formatSeconds = (seconds: number) => `${seconds.toFixed(2)} s`
 export type CutContext = Range & {
   duration: number
   before: TimelineWord[]
-  /** Words mostly inside the cut. */
+  /** Words wholly inside the cut: nothing of them is left. */
   removed: TimelineWord[]
-  /** Words the cut overlaps only at an edge: part of them is lost too. */
+  /** Every other word the cut touches: a fragment of it stays audible. */
   trimmed: TimelineWord[]
   after: TimelineWord[]
 }
@@ -259,7 +259,8 @@ export function cutContexts(
       const overlap =
         Math.min(word.end, cut.end) - Math.max(word.start, cut.start)
       if (overlap <= 0.001) continue
-      ;(overlap * 2 >= word.end - word.start ? removed : trimmed).push(word)
+      const whole = word.start >= cut.start - 0.001 && word.end <= cut.end + 0.001
+      ;(whole ? removed : trimmed).push(word)
     }
     return {
       start: cut.start,
