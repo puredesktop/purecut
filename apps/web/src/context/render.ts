@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { createSignal } from "solid-js";
-import { createEncoder } from "@diffusionstudio/encoder";
+import { asExportError, createEncoder } from "@diffusionstudio/encoder";
 
 import { createCapture } from "@/engine/capture";
 import { version } from "../../package.json";
@@ -77,10 +77,9 @@ export async function renderScene(
     console.info(`[export] ${percent}%`);
   };
 
-  engine.stop();
-
   let capture: Capture | undefined;
   try {
+    engine.stop();
     capture = await createCapture(world, scene, {
       dir,
       frameRate: config?.video?.fps,
@@ -108,11 +107,13 @@ export async function renderScene(
             : prev,
         );
       },
-    });
+    }).catch((error) => { throw asExportError('encode', error); });
 
     cancelActive = () => { cancelled = true; encoder.cancel(); };
     if (cancelled) encoder.cancel();
     return { ...await encoder.render(), sourceHash: capture.sourceHash };
+  } catch (error) {
+    throw asExportError('render', error);
   } finally {
     cancelActive = undefined;
     setOverlay(null);

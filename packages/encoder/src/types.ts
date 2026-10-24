@@ -18,6 +18,22 @@ export type EncoderProgress = {
 	remaining: Date;
 };
 
+export type ExportStage = 'render' | 'decode' | 'encode' | 'write';
+
+export class ExportError extends Error {
+	public readonly cause: unknown;
+
+	public constructor(public readonly stage: ExportStage, error: unknown) {
+		super(error instanceof Error ? error.message : String(error));
+		this.name = 'ExportError';
+		this.cause = error;
+	}
+}
+
+export function asExportError(stage: ExportStage, error: unknown): ExportError {
+	return error instanceof ExportError ? error : new ExportError(stage, error);
+}
+
 export type ExportResult =
 	| {
 		type: 'success';
@@ -28,5 +44,5 @@ export type ExportResult =
 	}
 	| {
 		type: 'error';
-		error: Error;
+		error: ExportError;
 	};

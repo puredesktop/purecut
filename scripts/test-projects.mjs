@@ -212,6 +212,8 @@ try {
       check(ownsKeyboardEvent(handledShortcut), 'handled export shortcut cannot trigger twice');
       const { bridge } = await import(bridgeUrl);
       await (await import('/scripts/browser-export-review-check.tsx')).checkExportReview(reviewVideo, bridge, () => window.inspectExportConfirmation());
+      await (await import('/scripts/browser-export-recovery-check.tsx')).checkExportRecovery(bridge);
+      (await import('/scripts/browser-export-recap-check.tsx')).checkExportRecap();
       const originalCall = bridge.call;
       const originalFetch = window.fetch;
       const mediaUrl = URL.createObjectURL(new Blob([new Uint8Array([0, 1, 2, 255])], { type: 'video/mp4' }));

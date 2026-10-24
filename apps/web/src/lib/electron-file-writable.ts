@@ -38,8 +38,8 @@ export class ElectronWritableFileHandle implements WritableFileTarget {
           position: chunk.position,
         }),
       close: async () => {
-        this.openId = null;
         await mainBridge.call(MAIN_CHANNELS.FILE_WRITE_CLOSE, { id });
+        this.openId = null;
       },
       abort: async () => {
         this.openId = null;
