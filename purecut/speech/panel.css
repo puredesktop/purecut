@@ -33,3 +33,6 @@
 .cut-transcription-steps .is-current { font-weight:700; opacity:1; }
 .cut-recording-card { display:flex; flex-direction:column; gap:7px; padding:16px; border:1px solid var(--border); border-radius:8px; font-size:12px; overflow-wrap:anywhere; }
 .cut-recording-card strong { font-size:15px; }
+.cut-highlight-name { width:100%; gap:4px; }
+.cut-highlight-name [data-slot="text-field-input"] { width:100%; }
+.cut-highlight-name strong { font-weight:600; color:var(--foreground); overflow-wrap:anywhere; }

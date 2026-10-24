@@ -5,9 +5,11 @@ import { AssetLibrary, type ProjectFS } from '@diffusionstudio/assets'
 import {
   Library,
   getEntityChildren,
+  Name,
   Scene,
   resolveTranscript,
 } from '@diffusionstudio/runtime'
+import { highlightExcerpt, wordsInRanges } from '../purecut/speech/model'
 import { mount, authoredTree, renderAuthored } from '@diffusionstudio/reconciler'
 import { EngineProvider, useEngineContext } from '@/engine'
 import { getDocumentEditor } from '@/engine/editor'
@@ -378,22 +380,70 @@ export async function speechFixture(host: HTMLElement) {
       if (context.words.some((w: any) => w.text === 'um'))
         throw Error('Drawer transcript includes removed speech')
       const original = speechScene().scene
+      const originalName = original.get(Name)?.value ?? ''
+      const originalTree = JSON.stringify(authoredTree(world, original)!.children)
       const before = text.get(project.dir + '/index.tsx')
-      await speechTool('proposeCutSpeechEdit', {
-        baseHash: context.baseHash,
+      const ranges = [{ start: 3, end: 4.5 }]
+      const freshHash = async () => ((await speechTool('getCutTranscript', {})) as any).baseHash
+      const sceneNamesNow = () => world.query(Scene).map(scene => scene.get(Name)?.value ?? '')
+      // Cancelling: discarding a highlight review creates nothing.
+      await speechTool('proposeCutSpeechEdit', { baseHash: await freshHash(), mode: 'highlight', ranges })
+      const offered = speechReview()!
+      const excerpt = highlightExcerpt(wordsInRanges(context.words as { text: string; start: number; end: number }[], ranges))
+      if (offered.highlightName !== excerpt || offered.highlightDefault !== excerpt || excerpt === 'Highlight')
+        throw Error(`Highlight was not offered the passage's words: ${offered.highlightName}`)
+      setSpeechReview(null)
+      await flushPendingProjectEdits()
+      if (world.query(Scene).length !== 1 || text.get(project.dir + '/index.tsx') !== before)
+        throw Error('Discarding a highlight changed the project')
+      // An edited name that is left empty falls back to the offered excerpt.
+      await speechTool('proposeCutSpeechEdit', { baseHash: await freshHash(), mode: 'highlight', ranges })
+      const emptied = await applySpeechReview({ ...speechReview()!, highlightName: '   ' })
+      if (emptied?.name !== excerpt || emptied.scene.get(Name)?.value !== excerpt)
+        throw Error(`An empty highlight name did not use the excerpt: ${emptied?.name}`)
+      history.undo()
+      await flushPendingProjectEdits()
+      setSpeechReview(null)
+      // An edited name that matches the source scene gets a number, never the same name.
+      if (originalName) {
+        await speechTool('proposeCutSpeechEdit', { baseHash: await freshHash(), mode: 'highlight', ranges })
+        const clash = await applySpeechReview({ ...speechReview()!, highlightName: originalName.toUpperCase() })
+        if (!clash || clash.name === originalName.toUpperCase() || sceneNamesNow().filter(n => n.toLowerCase() === originalName.toLowerCase()).length !== 1)
+          throw Error(`A highlight took its source's name: ${clash?.name}`)
+        history.undo()
+        await flushPendingProjectEdits()
+        setSpeechReview(null)
+      }
+      // The agent's title is used, cleaned, and reported before review.
+      const beforeAgent = text.get(project.dir + '/index.tsx')
+      const reply = await speechTool('proposeCutSpeechEdit', {
+        baseHash: await freshHash(),
         mode: 'highlight',
-        title: 'Short extract',
-        ranges: [{ start: 3, end: 4.5 }],
-      })
-      if (text.get(project.dir + '/index.tsx') !== before)
+        title: '  Short\nextract\u0000 ',
+        ranges,
+      }) as any
+      if (text.get(project.dir + '/index.tsx') !== beforeAgent)
         throw Error('Proposal wrote before review')
       const proposal = speechReview()!
-      await applySpeechCuts(
+      if (proposal.highlightName !== 'Short extract' || reply.sceneName !== 'Short extract')
+        throw Error(`Agent title was not carried into the review: ${proposal.highlightName} / ${reply.sceneName}`)
+      // The person edits the name before creating the scene.
+      const created = await applySpeechCuts(
         proposal.snapshot,
         proposal.cuts,
-        proposal.highlightName,
+        'Why we moved',
+        proposal.highlightDefault,
       )
+      if (created?.name !== 'Why we moved' || created.scene.get(Name)?.value !== 'Why we moved')
+        throw Error('Edited highlight name was not used')
       const highlight = world.query(Scene).find(scene => scene !== original)
+      if (highlight !== created.scene) throw Error('Highlight did not report its scene')
+      if ((original.get(Name)?.value ?? '') !== originalName ||
+          JSON.stringify(authoredTree(world, original)!.children) !== originalTree)
+        throw Error('Highlight renamed or changed its source scene')
+      const sourceProps = authoredTree(world, original)!.props, highlightProps = authoredTree(world, highlight)!.props
+      if (Number(highlightProps.x) < Number(sourceProps.x ?? 0) + Number(sourceProps.width ?? 0))
+        throw Error('Highlight sits on top of its source')
       const highlightEnd =
         highlight &&
         Math.max(

@@ -194,3 +194,40 @@ assert.equal(listed.cuts.length, m.LISTED_CUTS)
 assert.equal(listed.cutsNotListed, 400 - m.LISTED_CUTS)
 assert.match(listed.cutsNote, /all 400/)
 console.log('PASS speech proposal replies list a bounded number of cuts')
+
+// Highlight names: offered from the passage, cleaned, never a duplicate.
+assert.equal(
+  m.highlightExcerpt([{ text: 'um,' }, { text: 'we' }, { text: 'shipped' }, { text: '"it"' }, { text: 'on' }, { text: 'time.' }, { text: 'Then' }]),
+  '“We shipped it on time”',
+  'excerpt drops fillers and quotes and stops at the first sentence',
+)
+assert.equal(
+  m.highlightExcerpt('so this is a very long passage that keeps going and going without any end'.split(' ').map(text => ({ text }))),
+  '“So this is a very long passage that…”',
+  'a long excerpt stops at a word and says it goes on',
+)
+assert.equal(m.highlightExcerpt([{ text: '[laughter]' }, { text: 'uh' }, { text: '—' }]), 'Highlight', 'nothing usable falls back')
+assert.equal(m.highlightExcerpt([{ text: 'Yes' }]), '“Yes”')
+assert.equal(m.cleanSceneName('  Lesson\u0000 3\n\tintro​ '), 'Lesson 3 intro', 'control and invisible characters go')
+assert.equal(m.cleanSceneName('   '), '')
+assert.equal(m.cleanSceneName(42), '')
+assert.equal(Array.from(m.cleanSceneName('x'.repeat(300))).length, m.SCENE_NAME_LIMIT)
+assert.equal(m.uniqueSceneName('Interview', ['interview', 'Interview 2']), 'Interview 3', 'duplicates get the next free number, ignoring case')
+assert.equal(m.uniqueSceneName('Lesson intro', ['Interview']), 'Lesson intro')
+assert.equal(m.highlightSceneName('', '“We shipped it”', ['Interview']), '“We shipped it”', 'an empty name uses the offered excerpt')
+assert.equal(m.highlightSceneName(' ', ' ', []), 'Highlight', 'with nothing at all it is Highlight')
+assert.equal(m.highlightSceneName('Interview', '“x”', ['Interview']), 'Interview 2', 'a source name is never reused')
+assert.equal(
+  Array.from(m.uniqueSceneName('y'.repeat(m.SCENE_NAME_LIMIT), ['y'.repeat(m.SCENE_NAME_LIMIT)])).length,
+  m.SCENE_NAME_LIMIT,
+  'a numbered name still fits the limit',
+)
+assert.deepEqual(
+  m.wordsInRanges(
+    [{ text: 'a', start: 0, end: 1 }, { text: 'b', start: 2, end: 3 }, { text: 'c', start: 2.9, end: 4 }],
+    [{ start: 1.5, end: 3.2 }],
+  ).map(w => w.text),
+  ['b'],
+  'a word belongs to the range holding its middle',
+)
+console.log('PASS highlight names: excerpt, cleaning, empty and duplicate names')
