@@ -307,28 +307,30 @@ export function SpeechPanel() {
     setAvailability(available)
     // The service went away since the panel last looked: show why, send nothing.
     if (!available.provider) return
+    // Throws before anything is sent (a recording not imported yet): the
+    // panel's ordinary error line shows it.
+    const path = speechSourcePath(state)
     const signal = (controller = new AbortController()).signal
     setTranscribing(true)
     setCancelling(false)
     let data: Transcript
     try {
       data = await transcribeSource(
-        speechSourcePath(state),
+        path,
         state.asset.id,
         available,
         cloud(),
         signal,
         setPhase,
       )
-      // Keep what was paid for: the transcript belongs to the recording, so it
-      // is saved even if the scene changed meanwhile, and never asked for twice.
-      await saveTranscript(state, data)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       setOutcome({
         assetId: state.asset.id,
         providerId: available.provider.id,
-        reason: e instanceof TranscriptionError ? e.reason : signal.aborted ? 'cancelled' : 'failed',
+        // Any other error came before a job started, or stopped one that the
+        // client then cancelled; neither counts against today, so it may be retried.
+        reason: e instanceof TranscriptionError ? e.reason : signal.aborted ? 'cancelled' : 'unavailable',
         message: e instanceof TranscriptionError || !signal.aborted
           ? message
           : 'Transcription cancelled. No transcript was saved.',
@@ -339,6 +341,16 @@ export function SpeechPanel() {
       setCancelling(false)
       setPhase(null)
       controller = undefined
+    }
+    // Keep what was paid for: the transcript belongs to the recording, so it
+    // is saved even if the scene changed meanwhile, and never asked for twice.
+    try {
+      await saveTranscript(state, data)
+    } catch (e) {
+      // Still show it, so the work is not lost; saving is tried again with
+      // the next speaker-name change.
+      try { assertCurrent(state); setTranscript(data) } catch {}
+      throw Error(`The transcript arrived but couldn’t be saved to this project: ${e instanceof Error ? e.message : String(e)}`)
     }
     try {
       assertCurrent(state)
