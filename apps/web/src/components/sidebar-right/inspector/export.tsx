@@ -30,7 +30,7 @@ import { Separator } from "@/components/ui/separator";
 import { SliderInput } from "@/components/ui/slider-input";
 import { formatBytes, formatDuration } from "@/utils/formatters";
 import { useTrait, useWorld } from "@diffusionstudio/koota-solid";
-import { Computed, FrameRate, Source } from "@diffusionstudio/runtime";
+import { Computed, FrameRate, Name, Source } from "@diffusionstudio/runtime";
 import { useActiveScene, useDerived } from "@/engine/hooks";
 import { useProjectConfig } from "@/engine/project-config";
 import { useExport } from "@/context/export";
@@ -106,6 +106,8 @@ function createSceneExport(entity: Accessor<Entity | undefined>) {
   const { exportScene, exporting } = useExport();
 
   const source = useTrait(entity, Source);
+  const sceneName = useTrait(entity, Name);
+  const scope = createMemo(() => sceneName()?.value || "Current scene");
   const settings = createMemo(() => {
     source();
     const current = entity();
@@ -234,6 +236,7 @@ function createSceneExport(entity: Accessor<Entity | undefined>) {
 
   return {
     settings,
+    scope,
     resolutionOptions,
     selectedResolution,
     exportSupported,
@@ -249,10 +252,20 @@ function createSceneExport(entity: Accessor<Entity | undefined>) {
   };
 }
 
+export function ExportRecap(props: { width?: number; height?: number; fps?: number; format?: ContainerFormat; scope: string }) {
+  return (
+    <p class="text-xs text-muted-foreground" aria-label="Export summary">
+      {props.width && props.height ? `${props.width}×${props.height}` : "Dimensions unavailable"}
+      {" · "}{props.fps ?? 30} FPS{" · "}{(props.format ?? "mp4").toUpperCase()}{" · "}Scene: {props.scope}
+    </p>
+  );
+}
+
 /** How the selected scene is exported, and the way to change it. */
 export function ExportPanel(props: ExportPanelProps) {
   const {
     settings,
+    scope,
     resolutionOptions,
     selectedResolution,
     exportSupported,
@@ -310,6 +323,13 @@ export function ExportPanel(props: ExportPanelProps) {
             <TooltipContent>Remove export</TooltipContent>
           </Tooltip>
         </ItemRow>
+        <ExportRecap
+          width={selectedResolution()?.width}
+          height={selectedResolution()?.height}
+          fps={settings()?.video?.fps}
+          format={settings()?.format}
+          scope={scope()}
+        />
         <Tooltip disabled={exportSupported()}>
           <TooltipTrigger as="div" class="w-full">
             <Button class="w-full" onClick={runExport} disabled={exporting() || !exportSupported()}>
@@ -370,6 +390,7 @@ export function ExportVideoButton(props: ExportVideoButtonProps) {
 
   const {
     settings,
+    scope,
     resolutionOptions,
     selectedResolution,
     exportSupported,
@@ -415,6 +436,13 @@ export function ExportVideoButton(props: ExportVideoButtonProps) {
             onPatch={patchSettings}
             footer={
               <>
+                <ExportRecap
+                  width={selectedResolution()?.width}
+                  height={selectedResolution()?.height}
+                  fps={current().video?.fps}
+                  format={current().format}
+                  scope={scope()}
+                />
                 <Tooltip disabled={exportSupported()}>
                   <TooltipTrigger as="div" class="w-full">
                     <Button

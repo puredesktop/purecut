@@ -6,7 +6,7 @@ import { createContext, useContext, onCleanup, onMount } from "solid-js";
 import { toast } from "somoto";
 import { canEncodeVideo } from "mediabunny";
 import { useWorld } from "@diffusionstudio/koota-solid";
-import { computeOutputSize } from "@diffusionstudio/encoder";
+import { asExportError, computeOutputSize, type ExportStage } from "@diffusionstudio/encoder";
 import { Computed, FrameRate, getActiveEntity } from "@diffusionstudio/runtime";
 import { assert, downloadObject } from "@/utils";
 import { ownsKeyboardEvent } from '@/engine/input/keyboard-target';
@@ -43,8 +43,38 @@ export function ExportProvider(props: { children: JSX.Element }) {
   const sceneDurationSeconds = (scene: Entity) =>
     (scene.get(Computed)?.duration ?? 0) / (world.get(FrameRate)?.value || 30);
 
+  let lastAttempt: { scene: Entity; config: ExportConfig } | undefined;
+  const failureToast = "export-failure";
+
+  const nextStep: Record<ExportStage, string> = {
+    render: "Try the export again. If it keeps failing, check the scene for unsupported content.",
+    decode: "Check that the source media is available and playable, then retry.",
+    encode: "Try a lower resolution or another codec, then retry.",
+    write: "Check that the destination folder is available and has free space, then retry.",
+  };
+
+  const showFailure = (reason: unknown) => {
+    const error = asExportError("render", reason);
+    console.error("Export failed:", error);
+    toast.dismiss(failureToast);
+    toast.error("Export failed", {
+      id: failureToast,
+      description: `${nextStep[error.stage]} ${error.message}`,
+      duration: Infinity,
+      closeButton: true,
+      action: {
+        label: "Retry export",
+        onClick: () => {
+          if (lastAttempt) void exportScene(lastAttempt.scene, lastAttempt.config);
+        },
+      },
+    });
+    return error;
+  };
+
   const exportScene: ExportContextValue["exportScene"] = async (scene, config) => {
     if (!scene?.isAlive()) return;
+    toast.dismiss(failureToast);
 
     const format = config.format ?? "mp4";
     const mimeType = MIME_TYPES[format];
@@ -99,12 +129,14 @@ export function ExportProvider(props: { children: JSX.Element }) {
       return;
     }
 
+    lastAttempt = { scene, config: structuredClone(config) };
+    const attempt = lastAttempt;
     track('export_started', {
       format,
-      resolution: config.video?.resolution,
-      fps: config.video?.fps,
-      video_codec: config.video?.codec,
-      audio_codec: config.audio?.codec,
+      resolution: attempt.config.video?.resolution,
+      fps: attempt.config.video?.fps,
+      video_codec: attempt.config.video?.codec,
+      audio_codec: attempt.config.audio?.codec,
       scene_duration_s: Math.round(sceneDurationSeconds(scene)),
     });
     const startedAt = performance.now();
@@ -116,49 +148,47 @@ export function ExportProvider(props: { children: JSX.Element }) {
         const { flushPendingProjectEdits } = await import('@/projects/edits');
         await flushPendingProjectEdits();
       }
-      const result = await renderScene(engine, { scene, target, config, dir: exportDir });
+      const result = await renderScene(engine, { scene, target, config: attempt.config, dir: exportDir });
 
       if (result.type === "error") {
-        console.error("Export failed:", result.error);
-        toast.error("Export failed", {
-          description: result.error.message,
-        });
+        const error = showFailure(result.error);
         track('export_failed', {
           format,
+          stage: error.stage,
           duration_ms: Math.round(performance.now() - startedAt),
-          error: result.error.message?.slice(0, 200) ?? 'unknown',
+          error: error.message.slice(0, 200) || 'unknown',
         });
       } else if (result.type === "success") {
         if (import.meta.env.VITE_PURECUT && target instanceof ElectronWritableFileHandle) {
           try {
             await recordSuccessfulExport({ projectId: exportProjectId, projectDir: exportDir,
-              path: target.path, sourceHash: result.sourceHash, config });
+              path: target.path, sourceHash: result.sourceHash, config: attempt.config });
           } catch (error) {
             toast.error('Video saved, but export history could not be updated', {
               description: (error as Error).message,
             });
           }
         }
+        lastAttempt = undefined;
+        toast.dismiss(failureToast);
         toast("Export complete", {
           description: "Your video has been successfully exported",
         });
         track('export_completed', {
           format,
-          resolution: config.video?.resolution,
-          fps: config.video?.fps,
+          resolution: attempt.config.video?.resolution,
+          fps: attempt.config.video?.fps,
           scene_duration_s: Math.round(sceneDurationSeconds(scene)),
           duration_ms: Math.round(performance.now() - startedAt),
         });
       }
     } catch (e) {
-      console.error("Export failed:", e);
-      toast.error("Export failed", {
-        description: (e as Error).message,
-      });
+      const error = showFailure(e);
       track('export_failed', {
         format,
+        stage: error.stage,
         duration_ms: Math.round(performance.now() - startedAt),
-        error: (e as Error).message?.slice(0, 200) ?? 'unknown',
+        error: error.message.slice(0, 200) || 'unknown',
       });
     }
   };
