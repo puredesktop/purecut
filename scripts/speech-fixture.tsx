@@ -249,6 +249,10 @@ export async function speechFixture(host: HTMLElement) {
       editor.remove(state.units.map(u => u.entity))
       await flushPendingProjectEdits()
     },
+    /** The cuts the open review would hand to applySpeechReview. */
+    reviewCuts() {
+      return speechReview()?.cuts ?? null
+    },
     state() {
       let scene
       try {
