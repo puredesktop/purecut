@@ -293,7 +293,7 @@ try {
   console.log('STEP open transcript')
   await button('Transcript').click()
   await frame
-    .getByText('Configure an audio transcription provider', { exact: false })
+    .getByText('Transcription is optional. Editing and export work without it.', { exact: true })
     .waitFor()
   assert.equal(await button('Transcribe recording').count(), 0)
   assert.equal(requests, 0)

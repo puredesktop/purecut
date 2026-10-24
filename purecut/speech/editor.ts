@@ -85,14 +85,24 @@ function speechMediaTree(tree: AuthoredTree): boolean {
     !tree.children[0].props.frameRate
   )
 }
+/** Why the open scene cannot be transcribed or edited by speech. */
+export class SpeechSceneError extends Error {
+  constructor(
+    readonly reason: 'no-recording' | 'unsupported',
+    message: string,
+  ) {
+    super(message)
+    this.name = 'SpeechSceneError'
+  }
+}
 export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
   const session = requireEditorSession(),
     { world } = session
   const scene = getActiveEntity(world)
   if (!scene || !isScene(scene))
-    throw Error('Open a scene with a speech clip first.')
+    throw new SpeechSceneError('no-recording', 'Open a scene with a speech clip first.')
   if (containsLocked(world, scene))
-    throw Error('Unlock this scene before speech editing.')
+    throw new SpeechSceneError('unsupported', 'Unlock this scene before speech editing.')
   const tree = authoredTree(world, scene)
   if (
     !tree ||
@@ -104,12 +114,13 @@ export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
     (tree.props.end !== undefined && tree.props.end !== false) ||
     (tree.props.sourceOut !== undefined && tree.props.sourceOut !== false)
   )
-    throw Error(
+    throw new SpeechSceneError(
+      'unsupported',
       'Speech editing requires a directly authored scene without scene-level trimming or retiming.',
     )
   const children = getEntityChildren(world, scene)
   if (!children.length)
-    throw Error('Add a video or audio clip to the scene first.')
+    throw new SpeechSceneError('no-recording', 'Add a video or audio clip to the scene first.')
   const fps = world.get(FrameRate)?.value ?? 30
   const quantize = (n: number) => Math.round(n * fps) / fps
   const keptLayers: Entity[] = []
@@ -133,7 +144,8 @@ export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
       ) ||
       isLooped(entity)
     )
-      throw Error(
+      throw new SpeechSceneError(
+        'unsupported',
         'This scene has text, shapes, or other layers that transcript editing cannot safely cut. Create a separate scene containing only your video or audio recording, then open Transcript there. Existing captions are supported.',
       )
     if (
@@ -142,7 +154,8 @@ export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
       tree.props.transition ||
       tree.props.animate
     )
-      throw Error(
+      throw new SpeechSceneError(
+        'unsupported',
         'Remove retiming, animation or transitions before speech editing.',
       )
     const asset = findGeometryAsset(world, entity)
@@ -156,7 +169,7 @@ export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
       ),
     )
     if (!(start >= 0 && sourceIn >= 0 && end > start && Number.isFinite(end)))
-      throw Error('Wait for the clip duration to load.')
+      throw new SpeechSceneError('unsupported', 'Wait for the clip duration to load.')
     return {
       entity,
       tree,
@@ -171,16 +184,19 @@ export function speechScene(options: { keepOtherLayers?: boolean } = {}) {
     .filter(u => u.tree.tag.toLowerCase() !== 'captions')
     .sort((a, b) => a.start - b.start)
   const asset = media[0]?.asset
+  if (!media.length)
+    throw new SpeechSceneError('no-recording', 'Add a video or audio clip to the scene first.')
   if (
     !asset ||
     !['VIDEO', 'AUDIO'].includes(asset.type) ||
     media.some(u => u.asset?.id !== asset.id)
   )
-    throw Error(
+    throw new SpeechSceneError(
+      'unsupported',
       'Speech editing currently works with one source recording per scene.',
     )
   if (media.some((u, i) => i > 0 && u.start < media[i - 1].end - 0.001))
-    throw Error('Speech clips must not overlap.')
+    throw new SpeechSceneError('unsupported', 'Speech clips must not overlap.')
   const end = Math.max(...units.map(u => u.end))
   return {
     session,

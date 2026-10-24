@@ -33,6 +33,21 @@
 .cut-transcription-steps .is-current { font-weight:700; opacity:1; }
 .cut-recording-card { display:flex; flex-direction:column; gap:7px; padding:16px; border:1px solid var(--border); border-radius:8px; font-size:12px; overflow-wrap:anywhere; }
 .cut-recording-card strong { font-size:15px; }
+.cut-recording-label { font-size:11px; color:var(--muted-foreground); }
+.cut-transcription-quiet { font-size:12px; line-height:1.55; color:var(--muted-foreground); margin:0 0 12px; }
+.cut-transcription-start .cut-transcription-quiet { font-size:13px; opacity:1; margin:14px 0; }
+.cut-transcription-consent { display:block; font-size:14px; margin:14px 0; }
+.cut-transcription-problem, .cut-transcription-job { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin:16px 0; padding:14px 16px; border:1px solid var(--border); border-radius:8px; }
+.cut-transcription-problem[data-outcome] { border-color:color-mix(in srgb, var(--destructive) 35%, var(--border)); background:color-mix(in srgb, var(--destructive) 6%, transparent); }
+.cut-transcription-problem strong, .cut-transcription-job strong { font-size:14px; font-weight:600; }
+.cut-transcription-start .cut-transcription-problem p, .cut-transcription-start .cut-transcription-job p { margin:0; font-size:13px; }
+.cut-transcription-progress { position:relative; align-self:stretch; height:4px; margin:4px 0; border-radius:2px; overflow:hidden; background:color-mix(in srgb, currentColor 12%, transparent); }
+.cut-transcription-progress > span { position:absolute; inset:0 auto 0 0; border-radius:2px; background:var(--primary); transition:width .4s ease; }
+.cut-transcription-progress.is-indeterminate > span { width:30%; animation:cut-transcription-sweep 1.6s ease-in-out infinite; }
+@keyframes cut-transcription-sweep { from { left:-30%; } to { left:100%; } }
+@media (prefers-reduced-motion: reduce) {
+ .cut-transcription-progress.is-indeterminate > span { animation:none; left:0; width:100%; opacity:.35; }
+}
 .cut-highlight-name { width:100%; gap:4px; }
 .cut-highlight-name [data-slot="text-field-input"] { width:100%; }
 .cut-highlight-name strong { font-weight:600; color:var(--foreground); overflow-wrap:anywhere; }
