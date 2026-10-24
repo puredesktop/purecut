@@ -252,6 +252,11 @@ console.log('PASS speech review: listed ranges, context words, totals and pause 
   assert.deepEqual(inside.trimmed.map(w => w.text), ['wooord'])
   assert.equal(m.cutContent(inside), 'partial')
   assert.equal(m.cutContent(inside, [{ start: 0, end: 10 }]), 'partial', 'transcribed speech wins over a silence claim')
+  // Most of a word is still only part of it: its tail stays audible.
+  const [most] = m.cutContexts([{ start: 1, end: 1.8 }], spoken)
+  assert.deepEqual(most.removed, [])
+  assert.deepEqual(most.trimmed.map(w => w.text), ['wooord'])
+  assert.equal(m.cutContent(most), 'partial')
   const [gap] = m.cutContexts([{ start: 3.6, end: 4.6 }], spoken)
   assert.equal(m.cutContent(gap), 'untranscribed', 'an agent range between words is not known to be silent')
   assert.equal(m.cutContent(gap, []), 'untranscribed')
