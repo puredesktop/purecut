@@ -5,6 +5,7 @@
 import { createSignal } from "solid-js";
 import { createEncoder } from "@diffusionstudio/encoder";
 
+import { ElectronWritableFileHandle } from "@/lib/electron-file-writable";
 import { createCapture } from "@/engine/capture";
 import { version } from "../../package.json";
 
@@ -67,7 +68,18 @@ export async function renderScene(
   const audioOnly = config?.video?.enabled === false || config?.format === "ogg";
 
   let cancelled = false;
-  cancelActive = () => { cancelled = true; };
+  let aborting: Promise<void> | undefined;
+  const cancelTarget = () => {
+    cancelled = true;
+    // finalize() waits for stream close, including the platform upload. Abort
+    // the handle now rather than waiting for render() to return to its caller.
+    if (target instanceof ElectronWritableFileHandle) {
+      aborting ??= target.dispose().catch(error => {
+        console.warn("[export] Could not abort output", error);
+      });
+    }
+  };
+  cancelActive = cancelTarget;
   setOverlay({ audioOnly, progress: 0, remaining: undefined });
 
   let logged = -1;
@@ -110,10 +122,19 @@ export async function renderScene(
       },
     });
 
-    cancelActive = () => { cancelled = true; encoder.cancel(); };
-    if (cancelled) encoder.cancel();
-    return { ...await encoder.render(), sourceHash: capture.sourceHash };
+    cancelActive = () => { encoder.cancel(); cancelTarget(); };
+    if (cancelled) { encoder.cancel(); return { type: 'canceled' }; }
+    const result = await encoder.render();
+    // Publication can reject with AbortError (including while queued), or the
+    // encoder can wrap it in its error result. Neither is an export failure.
+    if (cancelled || (result.type === 'error' && result.error.name === 'AbortError'))
+      return { type: 'canceled' };
+    return { ...result, sourceHash: capture.sourceHash };
+  } catch (error) {
+    if (cancelled || (error as Error).name === 'AbortError') return { type: 'canceled' };
+    throw error;
   } finally {
+    await aborting;
     cancelActive = undefined;
     setOverlay(null);
     try { capture?.dispose(); }

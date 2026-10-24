@@ -37,11 +37,21 @@ export class ProjectService {
   ) {}
   async init() {
     this.root = await this.fs.root();
-    await navigator.locks.request("purecut-project-io", () => this.stagingRoot());
+    try {
+      await navigator.locks.request("purecut-project-io", () => this.stagingRoot());
+    } catch (error) {
+      // Housekeeping is optional: unavailable OPFS must not disable editing.
+      console.warn("[purecut] Staging cleanup unavailable", error);
+    }
   }
   private async stagingRoot() {
     const root = await navigator.storage.getDirectory();
-    await sweepMediaStaging(root);
+    try {
+      await sweepMediaStaging(root);
+    } catch (error) {
+      // A listing/probe failure must not prevent a new writable file.
+      console.warn("[purecut] Could not sweep staging files", error);
+    }
     return root;
   }
   private async discardStream(id: string) {
