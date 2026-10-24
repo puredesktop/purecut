@@ -12,6 +12,114 @@ let log = '',
   browser
 server.stdout.on('data', d => (log += d))
 server.stderr.on('data', d => (log += d))
+// What a review lists must be exactly what Apply removes: compare the shown
+// ranges and total with the proposal's cuts, then with the applied scene.
+async function reviewShows(page) {
+  return page.evaluate(async () => {
+    const m = await import('/purecut/speech/model.ts')
+    const cuts = window.speechFixture.reviewCuts()
+    return {
+      cuts,
+      shown: [...document.querySelectorAll('[data-cut-range]')].map(e => e.textContent.replace(/\s+/g, ' ').trim()),
+      expected: cuts.map(c => `${m.formatTimestamp(c.start)} – ${m.formatTimestamp(c.end)} · ${m.formatSeconds(c.end - c.start)}`),
+      total: document.querySelector('[data-review-total]')?.textContent,
+      removed: m.formatSeconds(m.removedSeconds(cuts)),
+    }
+  })
+}
+const sceneEnd = state => Math.max(...state.units.map(u => u.end))
+async function reviewChecks(page) {
+  const fixture = () => page.evaluate(() => window.speechFixture.state())
+  const original = await fixture()
+  // A direct selection says where it is and how long it is before Delete.
+  await page.locator('[data-speech-key]').filter({ hasText: /^um$/ }).click()
+  await page.getByText('1 word · 0:01.00 – 0:01.50 · 0.50 s', { exact: true }).waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByText('Clean up speech', { exact: true }).click()
+  await page.getByText('Silences longer than 1.50 s are shortened so about 0.30 s', { exact: false }).waitFor()
+  await page.getByRole('button', { name: 'Review 1 filler suggestions', exact: true }).click()
+  const review = page.getByRole('group', { name: 'Review speech edit' })
+  await review.getByText('1 cut · 0.50 s removed', { exact: true }).waitFor()
+  let shown = await reviewShows(page)
+  assert.deepEqual(shown.cuts, [{ start: 1, end: 1.5 }])
+  assert.deepEqual(shown.shown, shown.expected)
+  assert.equal(shown.total, `1 cut · ${shown.removed} removed`)
+  assert.equal(await review.locator('del').textContent(), 'um')
+  assert.match(await review.locator('.cut-review-context').textContent(), /Hello\s+um\s+world\./)
+  await review.getByRole('button', { name: 'Go to 0:01.00' }).waitFor()
+  assert.equal((await fixture()).source, original.source, 'opening a review changes nothing')
+  // The existing boundary editor drives the same list and total.
+  await review.getByText('Adjust', { exact: true }).click()
+  const end = review.getByRole('spinbutton', { name: 'Cut 1 end seconds' })
+  await end.fill('1.6')
+  await end.press('Tab')
+  await review.getByText('1 cut · 0.60 s removed', { exact: true }).waitFor()
+  shown = await reviewShows(page)
+  assert.deepEqual(shown.cuts, [{ start: 1, end: 1.6 }])
+  assert.deepEqual(shown.shown, shown.expected)
+  await end.fill('0.5')
+  await end.press('Tab')
+  await review.getByText('Cut 1 must end after it starts.', { exact: false }).waitFor()
+  assert.deepEqual((await reviewShows(page)).cuts, [{ start: 1, end: 1.6 }])
+  await review.getByRole('button', { name: 'Apply edit', exact: true }).click()
+  await page.waitForFunction(() => window.speechFixture.state().units?.length === 2)
+  let applied = await fixture()
+  assert.deepEqual(applied.units.map(u => [u.start, u.end, u.sourceIn].map(n => +n.toFixed(9))), [[0, 1, 0], [1, 5.4, 1.6]],
+    'the applied cut is the displayed 0:01.00 – 0:01.60')
+  await page.evaluate(() => window.speechFixture.undo())
+  await page.waitForFunction(() => window.speechFixture.state().units?.length === 1)
+  // Pause rule in words before analysis; invalid settings say why.
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
+  if (!(await page.locator('details.cut-cleanup').evaluate(d => d.open)))
+    await page.getByText('Clean up speech', { exact: true }).click()
+  const minimum = page.getByRole('spinbutton', { name: 'Minimum pause seconds' })
+  const retain = page.getByRole('spinbutton', { name: 'Retained pause seconds' })
+  await minimum.fill('0.5'); await minimum.press('Tab')
+  await retain.fill('0.5'); await retain.press('Tab')
+  await page.getByText('The pause you keep must be shorter than 0.50 s.', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Review pauses' }).isDisabled(), true)
+  await retain.fill('0.1'); await retain.press('Tab')
+  await page.getByText('Silences longer than 0.50 s are shortened so about 0.10 s', { exact: false }).waitFor()
+  await page.getByRole('button', { name: 'Review pauses' }).click()
+  await review.getByText(/gaps? · .* saved/).waitFor()
+  shown = await reviewShows(page)
+  assert.ok(shown.cuts.length >= 1)
+  assert.deepEqual(shown.shown, shown.expected)
+  assert.equal(shown.total, `${shown.cuts.length} ${shown.cuts.length === 1 ? 'gap' : 'gaps'} · ${shown.removed} saved`)
+  await review.locator('.cut-review-gap').first().waitFor()
+  await review.getByText('Silences longer than 0.50 s', { exact: false }).waitFor()
+  for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [375, 'light'], [375, 'dark']]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.evaluate(t => document.documentElement.setAttribute('data-kb-theme', t), theme)
+    await review.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `../../../speech-verification/review-${width}-${theme}.png` })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+  }
+  await page.evaluate(() => document.documentElement.setAttribute('data-kb-theme', 'light'))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const before = await fixture()
+  await review.getByRole('button', { name: 'Apply edit', exact: true }).click()
+  await page.waitForFunction(() => window.speechFixture.state().units?.length > 1)
+  applied = await fixture()
+  const removed = shown.cuts.reduce((n, c) => n + c.end - c.start, 0)
+  assert.ok(Math.abs(sceneEnd(before) - sceneEnd(applied) - removed) < 1e-9, 'scene shrinks by the displayed total')
+  assert.deepEqual(applied.units.slice(1).map(u => +u.sourceIn.toFixed(9)), shown.cuts.map(c => +c.end.toFixed(9)),
+    'each kept part resumes exactly where a displayed cut ends')
+  await page.evaluate(() => window.speechFixture.undo())
+  await page.waitForFunction(() => window.speechFixture.state().units?.length === 1)
+  // Discard leaves everything as it was.
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
+  if (!(await page.locator('details.cut-cleanup').evaluate(d => d.open)))
+    await page.getByText('Clean up speech', { exact: true }).click()
+  await page.getByRole('button', { name: 'Review 1 filler suggestions', exact: true }).click()
+  await review.getByRole('button', { name: 'Discard', exact: true }).click()
+  assert.equal((await fixture()).source, original.source)
+  assert.equal((await fixture()).proposal, false)
+  await page.keyboard.press('Escape')
+}
+
 try {
   await mkdir('../../../speech-verification', { recursive: true })
   execFileSync('ffmpeg', [
@@ -125,6 +233,7 @@ try {
   await page.keyboard.press('Control+z')
   await page.locator('[data-speech-key]').filter({ hasText: /^Hello$/ }).waitFor()
   await page.locator('[data-speech-key]').filter({ hasText: /^um$/ }).waitFor()
+  await reviewChecks(page)
   await page.evaluate(() => window.speechFixture.agentSpeechChecks())
   const captionReview = page.getByRole('group', {name:'Review speech edit'})
   await captionReview.getByText('Generate captions from the saved transcript.', {exact:false}).waitFor()

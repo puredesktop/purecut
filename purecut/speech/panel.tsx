@@ -5,6 +5,7 @@ import {
   createMemo,
   createSignal,
   For,
+  Index,
   onCleanup,
   untrack,
   Show,
@@ -36,13 +37,18 @@ import {
 } from './editor'
 import { loadTranscript, saveTranscript, speechSourcePath } from './store'
 import {
+  cutContexts,
   fillerSuggestions,
+  formatSeconds,
+  formatTimestamp,
   pauseCuts,
-  frameRanges,
+  pauseRule,
+  removedSeconds,
   selectedPassages,
   searchTranscript,
   subtract,
   timelineWords,
+  type CutContext,
   type Range,
   type Transcript,
 } from './model'
@@ -52,8 +58,26 @@ import {
   speechReview,
   setSpeechReview,
   reviewSpeech,
+  reviewedCuts,
   applySpeechReview,
+  type SpeechReview,
 } from './review'
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n} ${n === 1 ? one : many}`
+/** Long removals (highlights, agent cuts) show their first and last words. */
+const excerpt = (words: { text: string }[], edge = 6) =>
+  words.length > edge * 2 + 1
+    ? `${words.slice(0, edge).map(w => w.text).join(' ')} … ${words.slice(-edge).map(w => w.text).join(' ')}`
+    : words.map(w => w.text).join(' ')
+const reviewKind = (proposal: SpeechReview) =>
+  proposal.highlightName !== undefined
+    ? 'highlight'
+    : proposal.pause
+      ? 'pauses'
+      : proposal.reasons
+        ? 'fillers'
+        : 'cuts'
 
 export function SpeechPanel() {
   const engine = useEngineContext()
@@ -77,8 +101,10 @@ export function SpeechPanel() {
     [retain, setRetain] = createSignal(0.3),
     [repeats, setRepeats] = createSignal(false)
   const [page, setPage] = createSignal(0)
-  const [previewing, setPreviewing] = createSignal(false),
-    [stale, setStale] = createSignal(false)
+  /** 'all' while the whole result plays, or the index of the cut being heard. */
+  const [previewing, setPreviewing] = createSignal<'all' | number | null>(null),
+    [stale, setStale] = createSignal(false),
+    [boundaryError, setBoundaryError] = createSignal('')
   let controller: AbortController | undefined,
     stopPreview: (() => void) | undefined,
     generation = 0,
@@ -111,7 +137,7 @@ export function SpeechPanel() {
   }
   const cutSelection = () => void run(async () => {
     if (!selected().length || stale() || speechReview()) return
-    await applySpeechCuts(snapshot()!, chosenRanges())
+    await applySpeechCuts(snapshot()!, selectionCuts())
     window.getSelection()?.removeAllRanges()
     await refresh()
     documentElement?.focus()
@@ -240,27 +266,90 @@ export function SpeechPanel() {
         word.start * (engine.world.get(FrameRate)?.value ?? 30),
       )
   }
-  const propose = (cuts: Range[], title: string, highlightName?: string) => {
+  const propose = (
+    cuts: Range[],
+    title: string,
+    detail: Pick<SpeechReview, 'highlightName' | 'reasons' | 'pause'> = {},
+  ) => {
     const state = snapshot()
     if (!state) throw Error('Load a speech scene first.')
     assertCurrent(state)
-    const normalized = frameRanges(
-      cuts,
-      state.world.get(FrameRate)?.value ?? 30,
-      state.end,
-    )
-    if (!normalized.length && highlightName === undefined)
+    const normalized = reviewedCuts(state, cuts)
+    if (!normalized.length && detail.highlightName === undefined)
       throw Error('No matching words or pauses found.')
-    reviewSpeech({ snapshot: state, cuts: normalized, title, highlightName })
+    setBoundaryError('')
+    reviewSpeech({ snapshot: state, cuts: normalized, title, ...detail })
   }
   const chosenRanges = () => selectedPassages(words(), new Set(selected()))
+  /** Exactly what Delete or Cut selection removes. */
+  const selectionCuts = () =>
+    snapshot() ? reviewedCuts(snapshot()!, chosenRanges()) : []
+  const selectionSummary = createMemo(() => {
+    const cuts = selectionCuts()
+    if (!cuts.length) return ''
+    return [
+      plural(selected().length, 'word'),
+      `${formatTimestamp(cuts[0].start)} – ${formatTimestamp(cuts.at(-1)!.end)}`,
+      formatSeconds(removedSeconds(cuts)),
+      ...(cuts.length > 1 ? [`in ${cuts.length} places`] : []),
+    ].join(' · ')
+  })
+  const pauseExplanation = createMemo(() => pauseRule(minimum(), retain()))
+  const fps = () => engine.world.get(FrameRate)?.value ?? 30
+  const seek = (proposal: SpeechReview, time: number) =>
+    setPlayhead(engine.world, proposal.snapshot.scene, time * fps())
+  const preview = (proposal: SpeechReview, target: 'all' | number) =>
+    void run(async () => {
+      const playing = previewing()
+      stopPreview?.()
+      if (playing === target) return
+      const cut = typeof target === 'number' ? proposal.cuts[target] : undefined
+      setPreviewing(target)
+      try {
+        // A single cut plays two seconds either side, with every cut in
+        // that stretch skipped, as it will sound once applied.
+        stopPreview = previewCuts(
+          proposal.snapshot,
+          proposal.cuts,
+          () => setPreviewing(null),
+          cut ? { start: cut.start - 2, end: cut.end + 2 } : undefined,
+        )
+      } catch (e) {
+        setPreviewing(null)
+        throw e
+      }
+    })
+  const editBoundary = (
+    proposal: SpeechReview,
+    index: number,
+    edge: 'start' | 'end',
+    input: HTMLInputElement,
+  ) => {
+    stopPreview?.()
+    const next = proposal.cuts.map((r, i) =>
+      i === index ? { ...r, [edge]: input.valueAsNumber } : r,
+    )
+    try {
+      // Merged and frame-aligned as Apply would, so the list never shows a
+      // cut that Apply would change.
+      setSpeechReview({ ...proposal, cuts: reviewedCuts(proposal.snapshot, next) })
+      setBoundaryError('')
+    } catch {
+      input.value = String(+proposal.cuts[index][edge].toFixed(3))
+      setBoundaryError(`Cut ${index + 1} must end after it starts. Its ${edge} was not changed.`)
+    }
+  }
+  const keepSection = (proposal: SpeechReview, index: number) => {
+    stopPreview?.()
+    setSpeechReview({ ...proposal, cuts: proposal.cuts.filter((_, i) => i !== index) })
+  }
   const makeHighlight = () => {
     const selectedRanges = selectedPassages(words(), new Set(selected()))
     if (!selectedRanges.length) throw Error('Select words for the highlight.')
     propose(
       subtract({ start: 0, end: snapshot()!.end }, selectedRanges),
       'Create a highlight',
-      'Highlight',
+      { highlightName: 'Highlight' },
     )
   }
   const transcribe = async () => {
@@ -418,76 +507,85 @@ export function SpeechPanel() {
             </div>
             <details class="cut-cleanup">
               <summary>Clean up speech</summary>
-            <div class="flex flex-wrap gap-3 text-xs mb-2 items-center">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={repeats()}
-                  onChange={e => setRepeats(e.currentTarget.checked)}
-                />{' '}
-                Include possible repetitions
-              </label>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  void run(async () => {
-                    setSelected(suggestions().map(w => w.key))
-                    propose(suggestions(), 'Review filler words')
-                  })
-                }
-              >
-                Review {suggestions().length} filler suggestions
-              </Button>
-              <label>
-                Pauses longer than{' '}
-                <input
-                  aria-label="Minimum pause seconds"
-                  type="number"
-                  min="0.2"
-                  step="0.1"
-                  class="w-14 bg-background border rounded p-1"
-                  value={minimum()}
-                  onChange={e => setMinimum(e.currentTarget.valueAsNumber)}
-                />{' '}
-                s
-              </label>
-              <label>
-                Keep{' '}
-                <input
-                  aria-label="Retained pause seconds"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  class="w-14 bg-background border rounded p-1"
-                  value={retain()}
-                  onChange={e => setRetain(e.currentTarget.valueAsNumber)}
-                />{' '}
-                s
-              </label>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  void run(async () => {
-                    const state = snapshot()!
-                    setMessage('Analyzing the recording’s audio…')
-                    const wave = await waveformAsset(state.asset)
-                    assertCurrent(state)
-                    propose(
-                      pauseCuts(
-                        wave.silences,
-                        clips(state),
-                        words(),
-                        minimum(),
-                        retain(),
-                      ),
-                      'Shorten pauses',
-                    )
-                  })
-                }
-              >
-                Review pauses
-              </Button>
-            </div>
+              <div class="cut-cleanup-group">
+                <div class="cut-cleanup-row">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={repeats()}
+                      onChange={e => setRepeats(e.currentTarget.checked)}
+                    />{' '}
+                    Include possible repetitions
+                  </label>
+                  <Button
+                    variant="outline"
+                    disabled={!suggestions().length}
+                    onClick={() =>
+                      void run(async () => {
+                        setSelected(suggestions().map(w => w.key))
+                        propose(suggestions(), 'Review filler words', {
+                          reasons: Object.fromEntries(suggestions().map(w => [w.key, w.reason])),
+                        })
+                      })
+                    }
+                  >
+                    {suggestions().length ? `Review ${suggestions().length} filler suggestions` : 'No filler words found'}
+                  </Button>
+                </div>
+                <p class="cut-cleanup-rule">Each suggestion is listed with the words around it, so you can keep any that matter.</p>
+              </div>
+              <div class="cut-cleanup-group">
+                <div class="cut-cleanup-row">
+                  <label>
+                    Pauses longer than{' '}
+                    <input
+                      aria-label="Minimum pause seconds"
+                      type="number"
+                      min="0.2"
+                      step="0.1"
+                      class="w-14 bg-background border rounded p-1"
+                      value={minimum()}
+                      onChange={e => setMinimum(e.currentTarget.valueAsNumber)}
+                    />{' '}
+                    s
+                  </label>
+                  <label>
+                    Keep{' '}
+                    <input
+                      aria-label="Retained pause seconds"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      class="w-14 bg-background border rounded p-1"
+                      value={retain()}
+                      onChange={e => setRetain(e.currentTarget.valueAsNumber)}
+                    />{' '}
+                    s
+                  </label>
+                  <Button
+                    variant="outline"
+                    disabled={!pauseExplanation().valid}
+                    onClick={() =>
+                      void run(async () => {
+                        const state = snapshot()!
+                        setMessage('Listening for pauses in the recording…')
+                        const wave = await waveformAsset(state.asset)
+                        assertCurrent(state)
+                        propose(
+                          pauseCuts(wave.silences, clips(state), words(), minimum(), retain()),
+                          'Shorten pauses',
+                          { pause: { minimum: minimum(), retain: retain() } },
+                        )
+                      })
+                    }
+                  >
+                    Review pauses
+                  </Button>
+                </div>
+                <p class="cut-cleanup-rule" classList={{ 'is-invalid': !pauseExplanation().valid }} role={pauseExplanation().valid ? undefined : 'alert'}>
+                  {pauseExplanation().text}
+                </p>
+              </div>
             </details>
             <Show when={query()}>
               <div class="text-xs mb-2">
@@ -571,7 +669,7 @@ export function SpeechPanel() {
               </div>
             </Show>
             <div class="cut-selection-toolbar" aria-label="Transcript selection">
-              <span class="text-xs text-muted-foreground">{selected().length ? `${selected().length} words selected` : 'Click to seek · Drag to select'}</span>
+              <span class="cut-selection-summary text-xs" classList={{ 'text-muted-foreground': !selectionSummary() }}>{selectionSummary() || 'Click to seek · Drag to select'}</span>
               <Button disabled={!selected().length || !!speechReview()} onClick={cutSelection}>Cut selection</Button>
               <Button variant="ghost" disabled={!selected().length || !!snapshot()?.keptLayers.length} title={snapshot()?.keptLayers.length ? "Highlights need a scene with only the recording and captions" : undefined} onClick={() => void run(async () => makeHighlight())}>Create highlight</Button>
             </div>
@@ -621,133 +719,165 @@ export function SpeechPanel() {
           </fieldset>
         </Show>
         <Show when={speechReview()}>
-          {proposal => (
-            <div
-              class="border-t border-border pt-2 mt-2 flex flex-wrap items-center gap-2"
-              role="group"
-              aria-label="Review speech edit"
-            >
-              <span class="text-sm">
-                <Show when={proposal().captions} fallback={<>
-                {proposal().title}: {proposal().cuts.length} cuts ·{' '}
-                {proposal()
-                  .cuts.reduce((n, r) => n + r.end - r.start, 0)
-                  .toFixed(1)}{' '}
-                seconds removed
-                </>}>
-                  Generate captions from the saved transcript. Existing captions in this scene will be replaced; Undo restores them.
+          {proposal => {
+            const kind = () => reviewKind(proposal())
+            const items = createMemo<CutContext[]>(() =>
+              transcript()
+                ? cutContexts(proposal().cuts, timelineWords(transcript()!, clips(proposal().snapshot)))
+                : proposal().cuts.map(c => ({ ...c, duration: c.end - c.start, before: [], removed: [], trimmed: [], after: [] })),
+            )
+            const total = () => removedSeconds(proposal().cuts)
+            const count = () => proposal().cuts.length
+            const reasonOf = (item: CutContext) => {
+              const reasons = proposal().reasons
+              if (!reasons) return kind() === 'pauses' ? 'Pause' : ''
+              return [...new Set(item.removed.map(w => reasons[w.key]).filter(Boolean))]
+                .map(r => (r === 'Filler' ? 'Filler' : 'Possible repetition'))
+                .join(' · ')
+            }
+            return (
+              <div class="cut-review" role="group" aria-label="Review speech edit">
+                <Show when={!proposal().captions} fallback={
+                  <p class="cut-review-note">Generate captions from the saved transcript. Existing captions in this scene will be replaced; Undo restores them.</p>
+                }>
+                  <div class="cut-review-head">
+                    <strong>{proposal().title}</strong>
+                    <span class="cut-review-total" data-review-total>
+                      {kind() === 'highlight'
+                        ? `Keeps ${formatSeconds(proposal().snapshot.end - total())}`
+                        : kind() === 'pauses'
+                          ? `${plural(count(), 'gap')} · ${formatSeconds(total())} saved`
+                          : `${plural(count(), 'cut')} · ${formatSeconds(total())} removed`}
+                    </span>
+                  </div>
+                  <p class="cut-review-note">
+                    {kind() === 'pauses'
+                      ? pauseRule(proposal().pause!.minimum, proposal().pause!.retain).text
+                      : kind() === 'highlight'
+                        ? 'The kept passages become a new scene. The original scene is not changed.'
+                        : 'Read each cut in context. Keep any that change the meaning.'}{' '}
+                    Nothing changes until you apply.
+                  </p>
+                  <Show when={boundaryError()}>
+                    <p role="alert" class="cut-review-error">{boundaryError()}</p>
+                  </Show>
+                  <ol class="cut-review-list" aria-label="Proposed cuts">
+                    <Index each={items()} fallback={<li class="cut-review-empty">No cuts left. Apply would change nothing.</li>}>
+                      {(item, index) => (
+                        <li class="cut-review-item" data-cut-index={index}>
+                          <div class="cut-review-meta">
+                            <button
+                              type="button"
+                              class="cut-review-time"
+                              aria-label={`Go to ${formatTimestamp(item().start)}`}
+                              onClick={() => seek(proposal(), item().start)}
+                            >
+                              {formatTimestamp(item().start)}
+                            </button>
+                            <Show when={reasonOf(item())}>
+                              <span class="cut-review-reason">{reasonOf(item())}</span>
+                            </Show>
+                            <span class="flex-1" />
+                            <span class="cut-review-range" data-cut-range>
+                              {formatTimestamp(item().start)} – {formatTimestamp(item().end)} · {formatSeconds(item().duration)}
+                            </span>
+                          </div>
+                          <p class="cut-review-context">
+                            <Show when={item().before.length}>
+                              <span class="cut-review-kept">…{item().before.map(w => w.text).join(' ')} </span>
+                            </Show>
+                            <Show when={item().removed.length} fallback={
+                              <span class="cut-review-gap">{formatSeconds(item().duration)} of silence</span>
+                            }>
+                              <del class="cut-review-removed">{excerpt(item().removed)}</del>
+                            </Show>
+                            <Show when={item().after.length}>
+                              <span class="cut-review-kept"> {item().after.map(w => w.text).join(' ')}…</span>
+                            </Show>
+                          </p>
+                          <Show when={item().trimmed.length}>
+                            <p class="cut-review-warning">
+                              Also clips the edge of “{item().trimmed.map(w => w.text).join(' ')}”. Adjust the boundary if it sounds cut off.
+                            </p>
+                          </Show>
+                          <div class="cut-review-actions">
+                            <Button variant="ghost" size="small" disabled={busy() && previewing() !== index} onClick={() => preview(proposal(), index)}>
+                              {previewing() === index ? 'Stop' : 'Listen'}
+                            </Button>
+                            <Button variant="ghost" size="small" onClick={() => keepSection(proposal(), index)}>
+                              Keep this section
+                            </Button>
+                            <details class="cut-review-adjust">
+                              <summary>Adjust</summary>
+                              <div class="cut-review-bounds">
+                                <For each={['start', 'end'] as const}>
+                                  {edge => (
+                                    <label>
+                                      {edge === 'start' ? 'Start' : 'End'}{' '}
+                                      <input
+                                        aria-label={`Cut ${index + 1} ${edge} seconds`}
+                                        type="number"
+                                        min="0"
+                                        step={1 / fps()}
+                                        class="w-24 rounded border bg-background p-1"
+                                        value={+item()[edge].toFixed(3)}
+                                        onChange={e => editBoundary(proposal(), index, edge, e.currentTarget)}
+                                      />{' '}
+                                      s
+                                    </label>
+                                  )}
+                                </For>
+                              </div>
+                            </details>
+                          </div>
+                        </li>
+                      )}
+                    </Index>
+                  </ol>
                 </Show>
-              </span>
-              <Show when={!proposal().captions}>
-              <details class="w-full text-xs">
-                <summary>Adjust cut boundaries</summary>
-                <div class="max-h-28 overflow-y-auto">
-                  <For each={proposal().cuts}>
-                    {(cut, index) => (
-                      <div class="flex items-center gap-2 my-1">
-                        <span>Cut {index() + 1}</span>
-                        <For each={['start', 'end'] as const}>
-                          {edge => (
-                            <label>
-                              {edge}{' '}
-                              <input
-                                aria-label={`Cut ${
-                                  index() + 1
-                                } ${edge} seconds`}
-                                type="number"
-                                min="0"
-                                step="0.0333333333"
-                                class="w-24 rounded border bg-background p-1"
-                                value={cut[edge]}
-                                onChange={e => {
-                                  stopPreview?.()
-                                  const next = proposal().cuts.map((r, i) =>
-                                    i === index()
-                                      ? {
-                                          ...r,
-                                          [edge]: e.currentTarget.valueAsNumber,
-                                        }
-                                      : r,
-                                  )
-                                  setSpeechReview({ ...proposal(), cuts: next })
-                                }}
-                              />
-                            </label>
-                          )}
-                        </For>
-                        <Button
-                          variant="ghost"
-                          onClick={() =>
-                            setSpeechReview({
-                              ...proposal(),
-                              cuts: proposal().cuts.filter(
-                                (_, i) => i !== index(),
-                              ),
-                            })
-                          }
-                        >
-                          Keep this section
-                        </Button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </details>
-              <Button
-                variant="outline"
-                disabled={busy()}
-                onClick={() =>
-                  void run(async () => {
-                    if (previewing()) {
+                <div class="cut-review-footer">
+                  <Show when={!proposal().captions}>
+                    <Button
+                      variant="outline"
+                      disabled={busy() && previewing() !== 'all'}
+                      onClick={() => preview(proposal(), 'all')}
+                    >
+                      {previewing() === 'all' ? 'Stop preview' : 'Preview result'}
+                    </Button>
+                  </Show>
+                  <span class="flex-1" />
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
                       stopPreview?.()
-                      return
-                    }
-                    setPreviewing(true)
-                    try {
-                      stopPreview = previewCuts(
-                        proposal().snapshot,
-                        proposal().cuts,
-                        () => setPreviewing(false),
-                      )
-                    } catch (e) {
-                      setPreviewing(false)
-                      throw e
-                    }
-                  })
-                }
-              >
-                {previewing() ? 'Stop preview' : 'Preview result'}
-              </Button>
-              </Show>
-              <Button
-                disabled={busy()}
-                onClick={() =>
-                  void run(async () => {
-                    stopPreview?.()
-                    await applySpeechReview(proposal())
-                    if (proposal().highlightName !== undefined)
-                      toast('Highlight scene created', {
-                        description:
-                          'Select the new scene on the canvas to edit or export it.',
+                      setBoundaryError('')
+                      setSpeechReview(null)
+                    }}
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    disabled={busy() || (!proposal().captions && kind() !== 'highlight' && !count())}
+                    onClick={() =>
+                      void run(async () => {
+                        stopPreview?.()
+                        await applySpeechReview(proposal())
+                        if (proposal().highlightName !== undefined)
+                          toast('Highlight scene created', {
+                            description:
+                              'Select the new scene on the canvas to edit or export it.',
+                          })
+                        setSpeechReview(null)
+                        await refresh()
                       })
-                    setSpeechReview(null)
-                    await refresh()
-                  })
-                }
-              >
-                Apply edit
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  stopPreview?.()
-                  setSpeechReview(null)
-                }}
-              >
-                Discard
-              </Button>
-            </div>
-          )}
+                    }
+                  >
+                    Apply edit
+                  </Button>
+                </div>
+              </div>
+            )
+          }}
         </Show>
       </section>
     </Show>

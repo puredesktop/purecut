@@ -219,6 +219,10 @@ export async function speechFixture(host: HTMLElement) {
     configure() {
       configured = true
     },
+    /** The cuts the open review would hand to applySpeechReview. */
+    reviewCuts() {
+      return speechReview()?.cuts ?? null
+    },
     state() {
       let scene
       try {

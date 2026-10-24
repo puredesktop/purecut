@@ -1,19 +1,19 @@
-import { FrameRate, waveformAsset } from '@diffusionstudio/runtime'
+import { waveformAsset } from '@diffusionstudio/runtime'
 import { request } from '../transport'
 import { flushPendingProjectEdits } from '@/projects/edits'
 import { speechScene, clips, assertCurrent } from './editor'
 import { loadTranscript } from './store'
 import {
   fillerSuggestions,
-  frameRanges,
   listedCuts,
   pauseCuts,
   ranges,
+  removedSeconds,
   subtract,
   timelineWords,
   type Range,
 } from './model'
-import { reviewSpeech, setSpeechOpen } from './review'
+import { reviewSpeech, reviewedCuts, setSpeechOpen } from './review'
 
 export async function speechTool(name: string, args: Record<string, unknown>) {
   if (name === 'openCutTranscript') {
@@ -82,10 +82,13 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
   }
   if (name === 'proposeCutSpeechCleanup') {
     let proposed: Range[]
+    let detail: { reasons: Record<string, string> } | { pause: { minimum: number; retain: number } }
     if (args.mode === 'fillers') {
       if (args.includeRepetitions !== undefined && typeof args.includeRepetitions !== 'boolean')
         throw Error('includeRepetitions must be a boolean.')
-      proposed = fillerSuggestions(words, args.includeRepetitions === true)
+      const suggestions = fillerSuggestions(words, args.includeRepetitions === true)
+      proposed = suggestions
+      detail = { reasons: Object.fromEntries(suggestions.map(w => [w.key, w.reason])) }
     } else if (args.mode === 'pauses') {
       const minimum = args.minimumSeconds ?? 1.5, retain = args.retainSeconds ?? 0.3
       if (typeof minimum !== 'number' || typeof retain !== 'number' || !Number.isFinite(minimum) || !Number.isFinite(retain) || minimum <= 0 || retain < 0 || retain >= minimum)
@@ -93,11 +96,12 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
       const wave = await waveformAsset(snapshot.asset)
       assertCurrent(snapshot)
       proposed = pauseCuts(wave.silences, clips(snapshot), words, minimum, retain)
+      detail = { pause: { minimum, retain } }
     } else throw Error('Choose fillers or pauses.')
-    const cuts = frameRanges(proposed, snapshot.world.get(FrameRate)?.value ?? 30, snapshot.end)
+    const cuts = reviewedCuts(snapshot, proposed)
     if (!cuts.length) return { status: 'no-matches', message: 'No matching cleanup suggestions; nothing changed.' }
-    reviewSpeech({ snapshot, cuts, title: args.mode === 'fillers' ? 'Review filler words' : 'Shorten pauses' })
-    return { status: 'awaiting_review', ...listedCuts(cuts), removedSeconds: cuts.reduce((n, r) => n + r.end - r.start, 0),
+    reviewSpeech({ snapshot, cuts, title: args.mode === 'fillers' ? 'Review filler words' : 'Shorten pauses', ...detail })
+    return { status: 'awaiting_review', ...listedCuts(cuts), removedSeconds: removedSeconds(cuts),
       message: 'Nothing changed. The user can preview, adjust and apply these cleanup suggestions.' }
   }
   if (args.mode !== 'delete' && args.mode !== 'highlight')
@@ -112,9 +116,10 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
   if (requested.some(r => r.end > snapshot.end))
     throw Error('A range is outside this scene.')
   const highlight = args.mode === 'highlight'
-  const cuts = highlight
-    ? subtract({ start: 0, end: snapshot.end }, requested)
-    : requested
+  const cuts = reviewedCuts(
+    snapshot,
+    highlight ? subtract({ start: 0, end: snapshot.end }, requested) : requested,
+  )
   const title = highlight ? 'Review highlight' : 'Review transcript cuts'
   reviewSpeech({
     snapshot,
@@ -131,7 +136,7 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
     status: 'awaiting_review',
     ...listedCuts(cuts),
     remainingSeconds:
-      snapshot.end - cuts.reduce((n, r) => n + r.end - r.start, 0),
+      snapshot.end - removedSeconds(cuts),
     message:
       'Nothing has been changed. The user previews and applies this proposal in the transcript panel.',
   }

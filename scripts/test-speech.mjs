@@ -194,3 +194,50 @@ assert.equal(listed.cuts.length, m.LISTED_CUTS)
 assert.equal(listed.cutsNotListed, 400 - m.LISTED_CUTS)
 assert.match(listed.cutsNote, /all 400/)
 console.log('PASS speech proposal replies list a bounded number of cuts')
+
+// Review context: every displayed cut and total comes from the same frame-
+// aligned ranges applySpeechCuts removes, never a re-derived copy.
+{
+  const at = (text, start, end, i) => ({ text, start, end, index: i, key: `s:${i}`, speaker: 'A' })
+  const spoken = [
+    at('So', 0, 0.3, 0), at('I', 0.4, 0.5, 1), at('um', 0.6, 0.91, 2), at('think', 0.92, 1.3, 3),
+    at('we', 1.4, 1.6, 4), at('uh', 1.7, 2.0, 5), at('should', 2.1, 2.5, 6), at('go.', 4.6, 5.0, 7),
+    at('Next', 5.2, 5.6, 8),
+  ]
+  const fillers = m.fillerSuggestions(spoken)
+  assert.deepEqual(fillers.map(w => w.text), ['um', 'uh'])
+  const fps = 30, duration = 6
+  const applied = m.frameRanges(fillers, fps, duration)
+  // Proposals and boundary edits store this form; applying normalises again.
+  assert.deepEqual(m.frameRanges(applied, fps, duration), applied)
+  const items = m.cutContexts(applied, spoken, 3)
+  assert.deepEqual(items.map(i => ({ start: i.start, end: i.end })), applied)
+  const listedTotal = items.reduce((n, i) => n + i.duration, 0)
+  assert.ok(Math.abs(listedTotal - m.removedSeconds(applied)) < 1e-9)
+  assert.equal(m.formatSeconds(listedTotal), m.formatSeconds(m.removedSeconds(applied)))
+  assert.deepEqual(items[0].before.map(w => w.text), ['So', 'I'])
+  assert.deepEqual(items[0].removed.map(w => w.text), ['um'])
+  // The frame-aligned end reaches into "think": the review says so.
+  assert.deepEqual(items[0].trimmed.map(w => w.text), ['think'])
+  assert.deepEqual(items[0].after.map(w => w.text), ['we', 'uh', 'should'])
+  assert.deepEqual(items[1].removed.map(w => w.text), ['uh'])
+  assert.deepEqual(items[1].before.map(w => w.text), ['um', 'think', 'we'])
+  assert.equal(m.formatTimestamp(items[0].start), '0:00.60')
+  assert.equal(m.formatTimestamp(65.4321), '1:05.43')
+  assert.equal(m.formatTimestamp(59.999), '1:00.00')
+  assert.equal(m.formatSeconds(m.removedSeconds([{ start: 1, end: 1.5 }, { start: 2, end: 2.25 }])), '0.75 s')
+  // A pause cut holds no words; its context is the words either side.
+  const [gap] = m.cutContexts([{ start: 2.6, end: 4.5 }], spoken, 2)
+  assert.deepEqual(gap.removed, [])
+  assert.deepEqual(gap.trimmed, [])
+  assert.deepEqual(gap.before.map(w => w.text), ['uh', 'should'])
+  assert.deepEqual(gap.after.map(w => w.text), ['go.', 'Next'])
+  assert.deepEqual(m.cutContexts([{ start: 5.7, end: 6 }], spoken, 2)[0].after, [])
+  // Pause rule in words, and the same validation pauseCuts enforces.
+  assert.equal(m.pauseRule(1.5, 0.3).valid, true)
+  assert.match(m.pauseRule(1.5, 0.3).text, /longer than 1\.50 s .* about 0\.30 s/)
+  assert.equal(m.pauseRule(1, 1).valid, false)
+  assert.equal(m.pauseRule(NaN, 0.3).valid, false)
+  assert.throws(() => m.pauseCuts([], [], [], 1, 1))
+}
+console.log('PASS speech review: listed ranges, context words, totals and pause rule match the applied cuts')

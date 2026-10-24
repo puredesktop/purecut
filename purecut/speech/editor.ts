@@ -382,10 +382,12 @@ export function previewCuts(
   snapshot: SpeechScene,
   cuts: Range[],
   complete: () => void,
+  /** Play only this part of the timeline, e.g. a few seconds around one cut. */
+  span: Range = { start: 0, end: snapshot.end },
 ): () => void {
   assertCurrent(snapshot)
   const kept = subtract(
-    { start: 0, end: snapshot.end },
+    { start: Math.max(0, span.start), end: Math.min(snapshot.end, span.end) },
     frameRanges(cuts, snapshot.world.get(FrameRate)?.value ?? 30, snapshot.end),
   )
   if (!kept.length) throw Error('Nothing would remain after these cuts.')

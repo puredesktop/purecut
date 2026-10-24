@@ -33,3 +33,35 @@
 .cut-transcription-steps .is-current { font-weight:700; opacity:1; }
 .cut-recording-card { display:flex; flex-direction:column; gap:7px; padding:16px; border:1px solid var(--border); border-radius:8px; font-size:12px; overflow-wrap:anywhere; }
 .cut-recording-card strong { font-size:15px; }
+
+.cut-cleanup-group { padding:8px 0; border-top:1px solid var(--border); }
+.cut-cleanup-group:first-of-type { border-top:0; }
+.cut-cleanup-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+.cut-cleanup-rule { margin:6px 0 0; line-height:1.5; opacity:.7; max-width:60ch; }
+.cut-cleanup-rule.is-invalid { color:var(--destructive); opacity:1; }
+
+.cut-review { flex-shrink:0; display:flex; flex-direction:column; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+.cut-review-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; }
+.cut-review-head strong { font-size:14px; font-weight:600; }
+.cut-review-total { font-size:12px; font-variant-numeric:tabular-nums; opacity:.8; }
+.cut-review-note { margin:0; font-size:12px; line-height:1.5; opacity:.7; }
+.cut-review-error { margin:0; font-size:12px; color:var(--destructive); }
+.cut-review-list { list-style:none; margin:0; padding:0; max-height:min(42vh, 360px); overflow:auto; border:1px solid var(--border); border-radius:8px; }
+.cut-review-item { padding:10px 12px; border-top:1px solid var(--border); }
+.cut-review-item:first-child { border-top:0; }
+.cut-review-empty { padding:12px; font-size:12px; opacity:.7; }
+.cut-review-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; font-size:11px; font-variant-numeric:tabular-nums; }
+.cut-review-time { font:inherit; font-weight:600; padding:1px 4px; margin-left:-4px; border-radius:4px; cursor:pointer; }
+.cut-review-time:hover { background:var(--accent); }
+.cut-review-time:focus-visible { outline:1px solid var(--primary); }
+.cut-review-reason, .cut-review-range { opacity:.6; }
+.cut-review-context { margin:6px 0 0; font-family:var(--platform-typography-font-family-content, sans-serif); font-size:15px; line-height:1.55; overflow-wrap:anywhere; }
+.cut-review-kept { opacity:.75; }
+.cut-review-removed { text-decoration:line-through; text-decoration-color:var(--destructive); background:color-mix(in srgb, var(--destructive) 12%, transparent); border-radius:2px; padding:0 2px; }
+.cut-review-gap { font-family:var(--platform-typography-font-family, sans-serif); font-size:11px; padding:1px 6px; margin:0 2px; border:1px dashed color-mix(in srgb, currentColor 35%, transparent); border-radius:999px; white-space:nowrap; vertical-align:2px; }
+.cut-review-warning { margin:4px 0 0; font-size:11px; line-height:1.4; color:var(--destructive); }
+.cut-review-actions { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-top:6px; font-size:11px; }
+.cut-review-adjust summary { cursor:pointer; padding:2px 4px; opacity:.75; }
+.cut-review-bounds { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+.cut-review-footer { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.cut-selection-summary { font-variant-numeric:tabular-nums; }
