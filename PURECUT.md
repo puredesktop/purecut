@@ -63,9 +63,11 @@ works through the normal `pure-app` protocol.
 
 ## Known limits and follow-up qualification
 
-- The binary bridge uses complete files: 128 MB per media import/export. OPFS
-  staging does not make the final bridge transfer streaming. Long exports and
-  large audio buffers need separate memory/performance qualification.
+- The binary bridge streams media in bounded 4 MB chunks (import and export),
+  so projects are no longer capped at 128 MB per file. The write path stages in
+  OPFS and commits through `fs.binaryTransfer`; `npm run
+  test:purecut:large-media` covers seek/reopen/cancellation/quota and the
+  disk-full path against the old boundary.
 - Browser JSX/TypeScript compilation is lazy-loaded but is a large bundle.
 - One `index.tsx` entry per package; no multi-file source editor. No automatic
   external filesystem watching, project duplication or project deletion UI.

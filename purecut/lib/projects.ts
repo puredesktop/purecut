@@ -131,33 +131,45 @@ export class ProjectService {
         const root = await navigator.storage.getDirectory(),
           id = crypto.randomUUID();
         const handle = await root.getFileHandle("cut-" + id, { create: true });
-        const writer = await handle.createWritable();
+        let writer: FileSystemWritableFileStream;
+        try {
+          writer = await handle.createWritable();
+        } catch (error) {
+          await root.removeEntry("cut-" + id).catch(() => {});
+          throw error;
+        }
         this.streams.set(id, { target: d.path, handle, writer });
         return { id };
       }
       const s = this.streams.get(d.id);
       if (!s) throw Error("Unknown write stream");
-      if (channel === "file:write-chunk") {
-        const data = new Uint8Array(d.data);
-        if (
-          !Number.isSafeInteger(d.position) ||
-          d.position < 0 ||
-          d.position + data.length > 128 * 1024 * 1024
-        )
-          throw Error("Media write exceeds 128 MB limit");
-        await s.writer.write({ type: "write", position: d.position, data });
-        return;
-      }
+      let keepOpen = false;
       try {
+        if (channel === "file:write-chunk") {
+          const data = new Uint8Array(d.data);
+          if (!Number.isSafeInteger(d.position) || d.position < 0 ||
+              !Number.isSafeInteger(d.position + data.length))
+            throw Error("Invalid media write position");
+          await s.writer.write({ type: "write", position: d.position, data });
+          keepOpen = true;
+          return;
+        }
         if (channel === "file:write-close") {
           await s.writer.close();
+          // getFile is an immutable OPFS snapshot. The platform helper reads
+          // slices of it; never materialize the complete recording in memory.
           await this.fs.binary(s.target, await s.handle.getFile());
-        } else await s.writer.abort();
+        } else if (channel === "file:write-abort") {
+          await s.writer.abort();
+        } else throw Error("Unknown write operation");
+      } catch (error) {
+        await s.writer.abort().catch(() => {});
+        throw error;
       } finally {
-        this.streams.delete(d.id);
-        await (
-          await navigator.storage.getDirectory()
-        ).removeEntry("cut-" + d.id);
+        if (!keepOpen) {
+          this.streams.delete(d.id);
+          await (await navigator.storage.getDirectory()).removeEntry("cut-" + d.id);
+        }
       }
       return;
     }

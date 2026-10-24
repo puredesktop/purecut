@@ -50,6 +50,8 @@ export const files = {
     });
   },
   async binary(path: string, blob: Blob) {
+    // OPFS File snapshots remain disk-backed. This helper publishes them via
+    // fs.binaryTransfer in bounded 4 MB chunks, including on PureServer.
     await writePlatformFileBlob(path, blob);
   },
 };
