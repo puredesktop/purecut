@@ -7,14 +7,15 @@
 
 import { toast } from "somoto";
 import { resolveTranscript, serializeSubtitles, type SubtitleFormat } from "@diffusionstudio/runtime";
-import { importFiles as importFilesInto, pickFiles, saveAssetAs as saveAs } from "@diffusionstudio/assets";
+import { assetName, importFiles as importFilesInto, pickFiles, saveAssetAs as saveAs } from "@diffusionstudio/assets";
 import { insertAsset } from "./insert-asset";
+import { describeImport } from "./import-outcomes";
 import { forgetAssetMedia } from "./timeline/media";
 import { forgetAssetPeaks } from "./timeline/peaks";
 
 import type { World } from "koota";
 
-import type { Asset, AssetLibrary } from "@diffusionstudio/assets";
+import type { Asset, AssetLibrary, ImportOutcome } from "@diffusionstudio/assets";
 
 export { droppedFiles, pickFiles } from "@diffusionstudio/assets";
 
@@ -37,54 +38,88 @@ export async function exportSourceSubtitles(asset: Asset, format: SubtitleFormat
   } } });
 }
 
-/** Links files into the library at `folder` and reports whatever was skipped or refused. */
-export async function importFiles(library: AssetLibrary, files: ReadonlyArray<File>, folder: string): Promise<Asset[]> {
-  if (import.meta.env.VITE_PURECUT) {
-    const assets: Asset[] = [];
-    for (const file of files) {
-      try { assets.push(await library.store(file, {folder, name:file.name})); }
-      catch(error) { toast.error(`Could not import ${file.name}`, {description:(error as Error).message}); }
-    }
-    return assets;
-  }
-  const report = await importFilesInto(library, files, folder);
-
-  if (report.unnamed.length) {
-    toast("Some files could not be imported", { description: "Only files on this computer can be added to the library." });
-  }
-  for (const { source, error } of report.failed) {
-    toast.error(`Could not import ${source.split(/[\\/]/).pop()}`, { description: error.message });
-  }
-  return report.assets;
-}
-
-/** Opens the file picker and imports what the user picks into `folder`. */
-export async function pickAndImport(library: AssetLibrary, folder: string): Promise<Asset[]> {
-  return importFiles(library, await pickFiles(), folder);
+export interface ImportReport {
+  /** What became of every file, in the order they were given. */
+  outcomes: ImportOutcome[];
+  /** The assets the files came to (a duplicate's being the one already there). */
+  assets: Asset[];
 }
 
 /**
- * Lets the user pick another file for `asset` and points it there; the JSX
- * keeps naming it by path. Returns the relinked asset, or null when the
- * picker was dismissed or the relink
- * failed (reported).
+ * Takes files into the library at `folder`. Every file is tried and has an
+ * outcome. With `report: "toast"` (the default) what was not simply added
+ * is told in one toast; a caller showing the outcomes itself passes "none".
+ */
+export async function importFiles(
+  library: AssetLibrary, files: ReadonlyArray<File>, folder: string,
+  options: { report?: "toast" | "none" } = {},
+): Promise<ImportReport> {
+  let outcomes: ImportOutcome[];
+  if (import.meta.env.VITE_PURECUT) {
+    outcomes = [];
+    for (const file of files) outcomes.push(await library.importFile(file, { folder }));
+  } else {
+    outcomes = (await importFilesInto(library, files, folder)).outcomes;
+  }
+  const assets = outcomes.flatMap(outcome => outcome.status === "failed" ? [] : [outcome.asset]);
+  if ((options.report ?? "toast") === "toast") toastImport(outcomes);
+  return { outcomes, assets };
+}
+
+/** One toast for an import with something to say: the refusals, with their reasons. */
+function toastImport(outcomes: ImportOutcome[]): void {
+  const summary = describeImport(outcomes);
+  const failed = summary.rows.filter(row => row.failed);
+  if (!failed.length) return;
+  toast.error(summary.title, { description: failed.map(row => `${row.name}: ${row.detail}`).join("\n") });
+}
+
+/** Opens the file picker and imports what the user picks into `folder`. */
+export async function pickAndImport(
+  library: AssetLibrary, folder: string, options: { report?: "toast" | "none" } = {},
+): Promise<ImportReport> {
+  return importFiles(library, await pickFiles(), folder, options);
+}
+
+/**
+ * Lets the user pick another file of the same kind for `asset` and points it
+ * there; the JSX keeps naming it by path, so every clip using it plays the
+ * new file. A file of another kind is refused with why. The toast saying it
+ * was replaced carries an Undo that puts the old file back. Returns the
+ * relinked asset, or null when the picker was dismissed or the relink failed
+ * (reported).
  */
 export async function replaceAssetSource(library: AssetLibrary, asset: Asset): Promise<Asset | null> {
+  const previous = { ...asset };
   try {
     const [file] = await pickFiles({ multiple: false });
     if (!file) return null;
     const path = library.fs.pathOf?.(file);
     const relinked = import.meta.env.VITE_PURECUT || !path
       ? await library.relinkFile(asset, file)
-      : await library.relink(asset, path);
+      : await library.relink(asset, path, file.name);
     // The picture and the waveform the timeline is showing are of the file
     // it used to be.
     forgetAssetMedia(asset.id);
     forgetAssetPeaks(asset.id);
+    toast(`Replaced ${assetName(asset)}`, {
+      description: `Every clip using it now plays ${file.name}.`,
+      action: { label: "Undo", onClick: () => void undoReplace(library, relinked, previous) },
+    });
     return relinked;
   } catch (error) {
-    toast.error("Failed to replace", { description: (error as Error).message });
+    toast.error("Could not replace media", { description: (error as Error).message });
     return null;
+  }
+}
+
+async function undoReplace(library: AssetLibrary, current: Asset, previous: Asset): Promise<void> {
+  try {
+    forgetAssetMedia(current.id);
+    forgetAssetPeaks(current.id);
+    await library.restore(current, previous);
+  } catch (error) {
+    toast.error("Could not undo the replacement", { description: (error as Error).message });
   }
 }
 

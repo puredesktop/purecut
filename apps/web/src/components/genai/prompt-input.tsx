@@ -251,7 +251,7 @@ export function PromptInput(props: PromptInputProps) {
     if (files.length === 0) return;
 
     // `importFiles` reports its own failures.
-    const imported = await importFiles(lib, files, "");
+    const imported = (await importFiles(lib, files, "")).assets;
     const imageAssets = imported.filter((a) => a.type === "IMAGE");
     const current = imageConfig()?.imageRefIds ?? [];
     patch({
@@ -267,7 +267,7 @@ export function PromptInput(props: PromptInputProps) {
     if (files.length === 0) return;
 
     // `importFiles` reports its own failures.
-    const [imported] = (await importFiles(lib, files, "")).filter((a) => a.type === "IMAGE");
+    const [imported] = (await importFiles(lib, files, "")).assets.filter((a) => a.type === "IMAGE");
     if (!imported) return;
 
     patch(frame === "start" ? { startFrameImageId: imported.id } : { endFrameImageId: imported.id });
@@ -416,7 +416,7 @@ export function PromptInput(props: PromptInputProps) {
     const droppedIds =
       existingAssetIds.length > 0
         ? existingAssetIds
-        : (await importFiles(lib, files, "")).map((a) => a.id);
+        : (await importFiles(lib, files, "")).assets.map((a) => a.id);
 
     const imageIds = droppedIds.filter((id) => lib.get(id)?.type === "IMAGE");
     if (imageIds.length === 0) return;

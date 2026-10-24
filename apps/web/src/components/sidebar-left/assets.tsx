@@ -32,7 +32,8 @@ import { PartialAssetItem } from "./partial-asset-item";
 import { FolderItem, handleFolderDrop, isAssetOrFolderDrag, ASSET_DRAG_TYPE, FOLDER_DRAG_TYPE } from "./folder-item";
 import { useLibrary } from "@/engine/library";
 import { useAssetSelection } from "@/engine/hooks";
-import { droppedFiles, importFiles, pickAndImport, insertAssetAtPlayhead } from "@/engine/asset-actions";
+import { droppedFiles, importFiles, pickAndImport, insertAssetAtPlayhead, type ImportReport } from "@/engine/asset-actions";
+import { describeImport, type ImportSummary } from "@/engine/import-outcomes";
 import { isInputTarget } from "@/utils";
 import { AlertDialog, AlertDialogPortal, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "../ui/alert-dialog";
 
@@ -58,6 +59,7 @@ export function Assets() {
   const [isDragging, setIsDragging] = createSignal(false);
   const [renamingFolder, setRenamingFolder] = createSignal<string | null>(null);
   const [currentFolder, setCurrentFolder] = createSignal("");
+  const [importSummary, setImportSummary] = createSignal<ImportSummary | null>(null);
   const [pendingDelete, setPendingDelete] = createSignal<{ entry: AssetEntry; library: AssetLibrary } | null>(null);
   const [deleting, setDeleting] = createSignal(false);
   let cancelDelete: HTMLButtonElement | undefined;
@@ -156,13 +158,25 @@ export function Assets() {
     return run(lib);
   };
 
-  const handleImportAssets = () => withLibrary(async lib => {
-    const assets = await pickAndImport(lib, currentFolder());
-    if (assets.length) {
+  /**
+   * Shows what an import came to: the first file taken in is selected, and
+   * every file that was refused, renamed or already there gets a line in the
+   * summary above the grid until it is dismissed or the next import.
+   */
+  const showImport = (report: ImportReport) => {
+    if (!report.outcomes.length) return;
+    const summary = describeImport(report.outcomes);
+    setImportSummary(summary.rows.length ? summary : null);
+    const first = report.assets[0];
+    if (first) {
       setQuery("");
       setAssetFilter("ALL");
-      handleSelectAsset(assets[0].id);
+      handleSelectAsset(first.id);
     }
+  };
+
+  const handleImportAssets = () => withLibrary(async lib => {
+    showImport(await pickAndImport(lib, currentFolder(), { report: "none" }));
   });
 
   const handleDrop = async (event: DragEvent) => {
@@ -176,12 +190,7 @@ export function Assets() {
     const lib = library();
     if (!lib) return;
     if (handleFolderDrop(lib, event, currentFolder())) return;
-    const assets = await importFiles(lib, droppedFiles(event), currentFolder());
-    if (assets.length) {
-      setQuery("");
-      setAssetFilter("ALL");
-      handleSelectAsset(assets[0].id);
-    }
+    showImport(await importFiles(lib, droppedFiles(event), currentFolder(), { report: "none" }));
   };
 
   const handleDragOver = (event: DragEvent) => {
@@ -445,6 +454,10 @@ export function Assets() {
           </DropdownMenu>
         </div>
       </div>
+
+      <Show when={!isDragging() && importSummary()} keyed>
+        {(summary) => <ImportSummaryPanel summary={summary} onDismiss={() => setImportSummary(null)} />}
+      </Show>
 
       <Show when={hasContent() && !isDragging()}>
         <div class="shrink-0 px-4 pt-4 pb-1 flex flex-col gap-4">
@@ -712,6 +725,37 @@ function BreadcrumbCrumb(props: BreadcrumbCrumbProps) {
         {props.label}
       </BreadcrumbsLink>
     </BreadcrumbsItem>
+  );
+}
+
+type ImportSummaryPanelProps = {
+  summary: ImportSummary;
+  onDismiss: () => void;
+};
+
+/** What the last import came to: a count, then one line for each file that needs a word. */
+function ImportSummaryPanel(props: ImportSummaryPanelProps) {
+  return (
+    <div role="status" aria-label="Import summary" class="shrink-0 mx-4 mt-3 rounded-md border border-border bg-muted/50 py-2 pl-3 pr-1 flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <span class="flex-1 min-w-0 truncate text-xs font-strong text-foreground">{props.summary.title}</span>
+        <Button size="icon" variant="ghost" aria-label="Dismiss import summary" class="text-muted-foreground" onClick={props.onDismiss}>
+          <Icon name="close-remove-small" class="size-6" />
+        </Button>
+      </div>
+      <ul class="max-h-40 overflow-y-auto pr-2 flex flex-col gap-2">
+        <For each={props.summary.rows}>
+          {(row) => (
+            <li class="flex flex-col gap-0.5 min-w-0">
+              <span class="truncate text-xs text-foreground" title={row.name}>{row.name}</span>
+              <span class="text-xxs leading-4" classList={{ "text-destructive": row.failed, "text-muted-foreground": !row.failed }}>
+                {row.detail}
+              </span>
+            </li>
+          )}
+        </For>
+      </ul>
+    </div>
   );
 }
 

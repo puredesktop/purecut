@@ -20,6 +20,7 @@ import { assetName } from "@diffusionstudio/assets";
 import { useLibrary } from "@/engine/library";
 import { useAssetSelection } from "@/engine/hooks";
 import { insertAssetAtPlayhead, replaceAssetSource } from "@/engine/asset-actions";
+import { missingMediaMessage } from "@/engine/import-outcomes";
 import { retryGeneration } from "@/engine/generations";
 
 import type { Asset, PartialAsset } from "@diffusionstudio/assets";
@@ -137,8 +138,11 @@ function AssetDetails() {
             Insert at playhead
           </Button>
         </Show>
-        <Button variant="secondary" class="w-full" onClick={handleReplace}>
-          Replace source
+        <Show when={selection.asset() && missingMediaMessage(world, selection.asset()!)} keyed>
+          {(message) => <p role="alert" class="text-xs leading-5 text-foreground">{message}</p>}
+        </Show>
+        <Button variant={selection.asset()?.sourceError ? "default" : "secondary"} class="w-full" onClick={handleReplace}>
+          {selection.asset()?.sourceError ? "Replace media…" : "Replace source"}
         </Button>
       </div>
 

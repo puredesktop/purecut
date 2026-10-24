@@ -59,6 +59,41 @@ export interface ImportResult {
 	assets: Asset[];
 	/** Sources the library refused, with why. */
 	failed: { source: string; error: Error }[];
+	/** What became of every file, in the order the sources were given; a folder's files in its place. */
+	outcomes: ImportOutcome[];
+}
+
+/**
+ * What became of one imported file. `name` is the file's own name. `renamed`:
+ * taken in, but its name was taken, so it is filed as `asset.path`;
+ * `duplicate`: the library already had these bytes, as `asset`; `failed`:
+ * refused, `reason` saying why in words a person can act on.
+ */
+export type ImportOutcome =
+	| { source: string; name: string; status: 'added' | 'renamed' | 'duplicate'; asset: Asset }
+	| { source: string; name: string; status: 'failed'; reason: string };
+
+/** Why a file could not be imported (or used as a replacement), for the person who picked it. */
+export function importFailureReason(error: unknown): string {
+	const message = error instanceof Error ? error.message : String(error);
+	const name = error instanceof Error ? error.name : '';
+	if (/^Unsupported (file|resource)/.test(message)) {
+		return 'Not a file this editor can open: it takes video, audio, image and subtitle files.';
+	}
+	if (/^No such file/.test(message) || name === 'NotFoundError' || name === 'NotReadableError') {
+		return 'The file could not be read: it may have been moved or deleted.';
+	}
+	return message;
+}
+
+const TYPE_WORDS: Record<AssetType, string> = {
+	VIDEO: 'a video', AUDIO: 'an audio file', IMAGE: 'an image', SEQUENCE: 'an image sequence',
+	TRANSCRIPT: 'a subtitle file', SCRIPT: 'a script', MASK: 'a mask',
+};
+
+/** What kind of media an asset type is, in words ("a video"). */
+export function describeAssetType(type: AssetType): string {
+	return TYPE_WORDS[type];
 }
 
 export interface ImportOptions {
@@ -434,35 +469,69 @@ export class AssetLibrary {
 	 * asset. Every source is tried; the result says which were refused and why.
 	 */
 	public async import(sources: readonly string[], options: ImportOptions = {}): Promise<ImportResult> {
-		const result: ImportResult = { assets: [], failed: [] };
-		await Promise.all(sources.map(async (source) => {
+		const result: ImportResult = { assets: [], failed: [], outcomes: [] };
+		const outcomes = await Promise.all(sources.map(async (source): Promise<ImportOutcome[]> => {
 			try {
-				result.assets.push(...await this.importOne(source, options));
+				return await this.importOne(source, options);
 			} catch (error) {
-				result.failed.push({ source, error: error instanceof Error ? error : new Error(String(error)) });
+				const failure = error instanceof Error ? error : new Error(String(error));
+				result.failed.push({ source, error: failure });
+				const name = options.name ?? basename(source.split(/[?#]/)[0]!);
+				return [{ source, name, status: 'failed', reason: importFailureReason(failure) }];
 			}
 		}));
+		result.outcomes = outcomes.flat();
+		for (const outcome of result.outcomes) {
+			if (outcome.status !== 'failed') result.assets.push(outcome.asset);
+		}
 		return result;
 	}
 
-	private async importOne(source: string, options: ImportOptions): Promise<Asset[]> {
+	private async importOne(source: string, options: ImportOptions): Promise<ImportOutcome[]> {
 		if (isUrlSource(source)) {
 			const response = await fetch(source);
 			if (!response.ok) throw new Error(`Failed to fetch ${source}: ${response.status}`);
 			const blob = await response.blob();
 			const name = options.name ?? basename(source.split(/[?#]/)[0]!) ?? 'download';
-			return [await this.store(blob, { ...options, name })];
+			const { asset, source: written } = await this.storeBytes(blob, { ...options, name });
+			return [this.outcomeOf(source, name, options.folder, asset, written)];
 		}
 
 		const entries = await this.fs.list(source);
 		if (!entries.length || isSequenceListing(entries.map((entry) => entry.name))) {
-			return [await this.link(source, options)];
+			const name = options.name ?? basename(source);
+			const known = this.bySource(source);
+			if (known) return [{ source, name, status: 'duplicate', asset: known }];
+			return [this.outcomeOf(source, name, options.folder, await this.link(source, options), source)];
 		}
 
 		// A folder of files: a folder here, with each of them in it.
 		const folder = this.createFolder(joinPath(options.folder ?? '', options.name ?? basename(source)));
 		const children = entries.filter((entry) => !entry.name.startsWith('.')).map((entry) => joinPath(source, entry.name));
-		return (await this.import(children, { folder })).assets;
+		return (await this.import(children, { folder })).outcomes;
+	}
+
+	/**
+	 * Copies a file the app holds the bytes of (one with no path on disk) into
+	 * `assets/` and takes it in. Never throws: a refusal is a `failed` outcome,
+	 * and leaves nothing behind in the project.
+	 */
+	public async importFile(file: File, options: ImportOptions = {}): Promise<ImportOutcome> {
+		const name = options.name ?? file.name;
+		try {
+			const { asset, source } = await this.storeBytes(file, { ...options, name });
+			return this.outcomeOf(name, name, options.folder, asset, source);
+		} catch (error) {
+			return { source: name, name, status: 'failed', reason: importFailureReason(error) };
+		}
+	}
+
+	/** What an import of `name` into `folder` came to, `asset` being what the library holds and `source` where the import put its bytes. */
+	private outcomeOf(source: string, name: string, folder: string | undefined, asset: Asset, own: string): ImportOutcome {
+		// Bytes the library already had answer with the asset holding them, elsewhere.
+		if (asset.source !== own) return { source, name, status: 'duplicate', asset };
+		const renamed = asset.path !== joinPath(folder ?? '', name);
+		return { source, name, status: renamed ? 'renamed' : 'added', asset };
 	}
 
 	/** Links a file at `source` (absolute, or project-relative) into the library. */
@@ -472,8 +541,11 @@ export class AssetLibrary {
 
 		return this.once(`link:${source}`, async () => {
 			const name = options.name ?? basename(source);
-			const path = this.uniquePath(joinPath(options.folder ?? '', name));
-			const asset = await this.describeSource(source, { path, generation: options.generation });
+			const wanted = joinPath(options.folder ?? '', name);
+			const asset = await this.describeSource(source, { path: wanted, generation: options.generation });
+			// Chosen once described, not before: files of one name imported together
+			// would otherwise all be given the one free path.
+			asset.path = this.uniquePath(wanted);
 			return this.add(asset);
 		});
 	}
@@ -487,18 +559,36 @@ export class AssetLibrary {
 	 * another key, as a re-take of unchanged speech does.
 	 */
 	public async store(blob: Blob, options: ImportOptions & { name: string }): Promise<Asset> {
+		return (await this.storeBytes(blob, options)).asset;
+	}
+
+	/**
+	 * `store`, saying where the bytes were written. Bytes refused, or found to
+	 * be ones the library already holds elsewhere, are not left in `assets/`:
+	 * the next load would only take them in again.
+	 */
+	private async storeBytes(blob: Blob, options: ImportOptions & { name: string }): Promise<{ asset: Asset; source: string }> {
 		const key = options.generation?.key;
 		const reserved = key === undefined ? undefined : this.partialFor(key);
-		const path = this.uniquePath(joinPath(options.folder ?? '', options.name), reserved);
+		// Nor may it write over the file of an asset since renamed away from this name.
+		const path = this.uniquePath(joinPath(options.folder ?? '', options.name), reserved,
+			(candidate) => this.bySource(joinPath(ASSETS_DIR, candidate)) !== undefined);
 		const source = joinPath(ASSETS_DIR, path);
 		await this.fs.write(source, blob);
-		const asset = await this.describeFile(source, { path, generation: options.generation });
+		let asset: Asset;
+		try {
+			asset = await this.describeFile(source, { path, generation: options.generation });
+		} catch (error) {
+			await this.fs.remove(source).catch(() => { });
+			throw error;
+		}
 		if (key !== undefined) this.dropPartial(key);
 		const stored = this.add(asset);
+		if (stored.source !== source) await this.fs.remove(source).catch(() => { });
 		if (options.generation && stored.generation?.key !== key) {
 			this.update(stored, { generation: options.generation });
 		}
-		return stored;
+		return { asset: stored, source };
 	}
 
 	/**
@@ -600,14 +690,21 @@ export class AssetLibrary {
 	/**
 	 * Points an asset at other bytes: same library path (so the JSX is
 	 * untouched), new source, new content id. Whatever is bound to the old id
-	 * is the host's to move over (`onRelink`).
+	 * is the host's to move over (`onRelink`). Bytes of another kind are
+	 * refused: what plays the asset (a video paint, an audio clip) needs the
+	 * same kind of media in its place.
 	 */
-	public async relink(asset: Asset, source: string): Promise<Asset> {
+	public async relink(asset: Asset, source: string, name = basename(source)): Promise<Asset> {
 		const next = await this.describeSource(source, {
 			path: asset.path,
 			createdAt: asset.createdAt,
 			generation: asset.generation,
+		}).catch((error: unknown) => {
+			throw new Error(`"${name}" cannot replace "${assetName(asset)}". ${importFailureReason(error)}`);
 		});
+		if (next.type !== asset.type) {
+			throw new Error(`"${name}" is ${describeAssetType(next.type)}; "${assetName(asset)}" is ${describeAssetType(asset.type)}, so it needs ${describeAssetType(asset.type)} in its place.`);
+		}
 		const from = asset.id;
 		if (next.id === from) {
 			Object.assign(asset, next);
@@ -630,12 +727,46 @@ export class AssetLibrary {
 		const source = joinPath(ASSETS_DIR, `replacement-${crypto.randomUUID()}-${name || 'media'}`);
 		try {
 			await this.fs.write(source, file);
-			return await this.relink(asset, source);
+			return await this.relink(asset, source, file.name);
 		} catch (error) {
 			// Failed probing must not remove or overwrite the previous source.
 			if (!this.bySource(source)) await this.fs.remove(source).catch(() => {});
 			throw error;
 		}
+	}
+
+	/**
+	 * Undoes a relink: `current` (what the relink returned) is pointed back
+	 * at the bytes `previous` (a copy of the asset taken before it) had, and
+	 * comes back missing if they are gone again. Bytes the relink copied
+	 * into `assets/` go. Whatever is bound to `current` follows (`onRelink`).
+	 */
+	public async restore(current: Asset, previous: Asset): Promise<Asset> {
+		if (this.map.get(current.id) !== current) {
+			throw new Error(`"${assetName(current)}" was changed again since, so this replacement can no longer be undone.`);
+		}
+		const record = toRecord(previous) as AssetRecord;
+		const back: Asset = await this.revive(record).catch((error: unknown) => (
+			{ ...this.attach(record), sourceError: error instanceof Error ? error.message : String(error) }
+		));
+		const from = current.id;
+		const staged = current.source !== back.source && current.source.startsWith(`${ASSETS_DIR}/replacement-`)
+			? current.source : undefined;
+		let restored: Asset;
+		if (back.id === from) {
+			for (const key of Object.keys(current) as (keyof Asset)[]) if (!(key in back)) delete current[key];
+			Object.assign(current, back);
+			restored = current;
+		} else {
+			this.map.delete(from);
+			this.reorder(back);
+			this.cache.remove(from);
+			restored = back;
+		}
+		this.changed();
+		if (staged && !this.bySource(staged)) await this.fs.remove(staged).catch(() => { });
+		this.onRelink?.(restored, from);
+		return restored;
 	}
 
 	/** Renames an entry within its folder; an asset's source file is untouched. */
@@ -787,9 +918,10 @@ export class AssetLibrary {
 	// -----------------------------------------------------------------------
 	// Describing
 
-	/** A library path not taken by any other entry: `name`, `name 2`, … */
-	private uniquePath(path: string, except?: AssetEntry): string {
-		const taken = new Set(this.entriesNow().filter((entry) => entry !== except).map((entry) => entry.path));
+	/** A library path not taken by any other entry (nor refused by `alsoTaken`): `name`, `name 2`, … */
+	private uniquePath(path: string, except?: AssetEntry, alsoTaken?: (path: string) => boolean): string {
+		const paths = new Set(this.entriesNow().filter((entry) => entry !== except).map((entry) => entry.path));
+		const taken = { has: (candidate: string) => paths.has(candidate) || alsoTaken?.(candidate) === true };
 		if (!taken.has(path)) return path;
 		const folder = dirname(path);
 		const name = basename(path);
