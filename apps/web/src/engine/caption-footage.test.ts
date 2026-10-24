@@ -16,20 +16,28 @@ vi.hoisted(() => {
   scope.HTMLImageElement ??= class {};
   scope.HTMLVideoElement ??= class {};
 });
+// The frame capture renders through the app's project loader and the
+// encoder; only its preparation of the capture world is under test here.
+vi.mock('./capture', () => ({ createCapture: vi.fn() }));
+vi.mock('@diffusionstudio/encoder', () => ({ createImageEncoder: vi.fn(), decodePng: vi.fn() }));
 import { AssetLibrary, type Manifest, type ProjectFS, type Transcript } from '@diffusionstudio/assets';
 import {
-  Caption, CaptionType, Computed, Library, bindAsset, createRuntimeWorld, getActiveEntity, setActive, store,
+  Caption, CaptionType, Color, Computed, Hidden, Library, TextCase, TextStyle, Workarea, bindAsset, createRuntimeWorld,
+  getActiveEntity, setActive, store,
 } from '@diffusionstudio/runtime';
 import { authoredElement, createRuntimeDocument } from '@diffusionstudio/reconciler';
 import {
   applyCaptionStyle, cueSceneFrame, describeLongCue, editableCaptions, findLongCues, seekToCue, splitCaptionCue, splitCue, splitPoint,
 } from './caption-editing';
+import { prepareCaptionFrame } from './caption-frame';
 import { getDocumentEditor } from './editor';
 import { getEditHistory } from './history';
 import {
-  assessReadability, layoutCaption, previewText,
+  assessCaptionPaints, assessReadability, highlightColors, layoutCaption, previewText,
 } from '../components/sidebar-right/inspector/caption-preview';
-import { CAPTION_PRESET_OPTIONS, captionPresetTextStyle } from '../components/sidebar-right/inspector/caption-types';
+import {
+  CAPTION_PRESET_OPTIONS, captionPresetTextStyle, captionStyleFor,
+} from '../components/sidebar-right/inspector/caption-types';
 
 const words = (text: string, start: number, each: number) =>
   text.split(' ').map((word, i) => ({ text: word, start: start + i * each, end: start + (i + 1) * each - 0.02 }));
@@ -113,6 +121,35 @@ describe('caption previews', () => {
     expect(layout.lines.every(line => line.source === 0)).toBe(true);
   });
 
+  it('reveals Cascade word by word, as its decoder does', () => {
+    const cascade = option('cascade').look;
+    const group = cue('one two three four five', 4, 0.5);
+    expect(previewText(cascade, group, 4.1).lines).toEqual(['one']);
+    expect(previewText(cascade, group, 5.1).lines).toEqual(['one two three']);
+    expect(previewText(cascade, group, 6.4).lines).toEqual(['one two three four five']);
+    // Before the group plays, its first word stands for it.
+    expect(previewText(cascade, group, 0).lines).toEqual(['one']);
+    // Whisper is not revealed: its whole group (two seconds of words) shows at once.
+    expect(previewText(option('whisper').look, group, 4.1).lines).toEqual(['one two three four']);
+  });
+
+  it('judges the highlight colors, not only the base text', () => {
+    const spotlight = option('spotlight').look;
+    // A black spoken word on a night shot: the white text reads, the word does not.
+    expect(assessReadability(DARK, 0xffffff, spotlight).verdict).toBe('clear');
+    const black = assessCaptionPaints(DARK, { text: 0xffffff, highlights: highlightColors(spotlight, [0x000000]) }, spotlight);
+    expect(black).toMatchObject({ verdict: 'lost', weakest: 'highlight' });
+    // Guinea cycles through all three slots: one failing slot fails the preset.
+    const guinea = option('guinea').look;
+    expect(highlightColors(guinea, [1, 2, 3])).toEqual([1, 2, 3]);
+    const third = assessCaptionPaints(DARK, { text: 0xffffff, highlights: highlightColors(guinea, [0xf55353, 0xfeb139, 0x101010]) }, guinea);
+    expect(third).toMatchObject({ verdict: 'lost', weakest: 'highlight' });
+    const allGood = assessCaptionPaints(DARK, { text: 0xffffff, highlights: highlightColors(guinea, [0xf55353, 0xfeb139, 0xf6f54d]) }, guinea);
+    expect(allGood.verdict).toBe('clear');
+    // Presets without a color accent have no highlight to judge.
+    expect(highlightColors(option('paper').look, [0x000000])).toEqual([]);
+  });
+
   it('judges white captions lost on a bright shot and clear on a dark one', () => {
     const whisper = option('whisper').look;
     expect(assessReadability(BRIGHT, 0xffffff, whisper).verdict).toBe('lost');
@@ -127,6 +164,59 @@ describe('caption previews', () => {
     // A shot half white, half dark is patchy.
     const mixed = new Uint8ClampedArray([...patch(250, 250, 250, 20), ...patch(10, 10, 10, 80)]);
     expect(assessReadability(mixed, 0xffffff, whisper).verdict).toBe('patchy');
+  });
+});
+
+describe('previews follow the caption the document will draw', () => {
+  it('uses the caption\'s own style over each preset, as applying the preset would', () => {
+    const world = createRuntimeWorld(`caption-style-${Math.random()}`);
+    const document = createRuntimeDocument(world);
+    try {
+      const scene = document.createElement('Scene'); document.insertNode(document.stage, scene);
+      const clip = document.createElement('Captions');
+      document.setProperty(clip, '__source', 'captions-styled');
+      const authored = { fontSize: 140, fontFamily: 'Inter', fontWeight: 'bold', textCase: 'upper', letterSpacing: 4, fill: '#ffcc00' };
+      for (const [key, value] of Object.entries(authored)) document.setProperty(clip, key, value);
+      document.insertNode(scene, clip);
+      for (const preset of CAPTION_PRESET_OPTIONS) {
+        // What the document writes when the preset changes, against the preview's reading of it.
+        document.setProperty(clip, 'preset', preset.name);
+        const drawn = clip.entity.get(TextStyle)!;
+        const { style, fill } = captionStyleFor(preset, authoredElement(clip.entity)!.props);
+        for (const key of ['fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'textAlign', 'textBaseline', 'textCase', 'letterSpacing', 'leading'] as const)
+          expect(style[key], `${preset.name} ${key}`).toBe(drawn[key]);
+        expect(fill, preset.name).toBe(clip.entity.get(Color)?.value);
+        expect(style).toMatchObject({ fontSize: 140, fontFamily: 'Inter', fontWeight: '700', textCase: TextCase.UPPER, letterSpacing: 4 });
+      }
+    } finally { document.dispose(); world.destroy(); }
+  });
+
+  it('measures coverage at the caption\'s own size', () => {
+    const scene = { width: 1920, height: 1080 };
+    const measure = (text: string, font: string) => text.length * Number(/(\d+)px/.exec(font)![1]) * 0.5;
+    const whisper = option('whisper');
+    const text = previewText(whisper.look, fixture[1]!, 2.5);
+    const plain = layoutCaption(whisper.look, captionStyleFor(whisper, {}).style, text, scene, measure);
+    const large = layoutCaption(whisper.look, captionStyleFor(whisper, { fontSize: 120 }).style, text, scene, measure);
+    expect(large.coverage).toBeGreaterThan(plain.coverage * 2);
+  });
+
+  it('captures the playhead frame even before a work area that starts later', () => {
+    const world = createRuntimeWorld(`caption-frame-${Math.random()}`);
+    const document = createRuntimeDocument(world);
+    try {
+      const scene = document.createElement('Scene'); document.insertNode(document.stage, scene);
+      const clip = document.createElement('Captions');
+      document.setProperty(clip, '__source', 'captions-frame');
+      document.insertNode(scene, clip);
+      // A work area from 10 s at 30 fps, with the playhead at 2 s.
+      scene.entity.add(Workarea);
+      scene.entity.set(Workarea, { start: 300, end: 600 });
+      const frame = prepareCaptionFrame(world, scene.entity, 60);
+      expect(frame).toBe(60);
+      expect(scene.entity.has(Workarea)).toBe(false);
+      expect(clip.entity.has(Hidden)).toBe(true);
+    } finally { document.dispose(); world.destroy(); }
   });
 });
 

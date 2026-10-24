@@ -13,6 +13,21 @@ import type { Entity, World } from 'koota';
 const FRAME_HEIGHT = 360;
 
 /**
+ * Readies a capture world for a caption check and says which encoder frame
+ * shows `playhead` (a frame of the editor's scene). Every caption is hidden,
+ * so the picture is what a caption has to stand out from. The scene's work
+ * area goes: the image encoder counts frames from it, as an export does, and
+ * a playhead before or after it would otherwise be captured as some other
+ * frame. Without one, frame 0 is the scene's start and the playhead is its
+ * own frame.
+ */
+export function prepareCaptionFrame(captureWorld: World, scene: Entity, playhead: number): number {
+  for (const caption of captureWorld.query(Caption)) caption.add(Hidden);
+  scene.remove(Workarea);
+  return Math.max(0, Math.round(playhead));
+}
+
+/**
  * The picture under the playhead with every caption taken out: what a caption
  * preset has to stay readable on. Rendered the way an export renders the
  * scene — so it is the shot itself, not the editor's view of it with its
@@ -20,14 +35,10 @@ const FRAME_HEIGHT = 360;
  * its history untouched.
  */
 export async function captureFrameWithoutCaptions(world: World, scene: Entity, dir?: string): Promise<ImageBitmap> {
-  const computed = store(world, Computed);
-  // The image encoder counts from the work area's first frame, as an export does.
-  const playhead = computed.localTime[scene.id()] ?? 0;
-  const frame = Math.max(0, playhead - (scene.get(Workarea)?.start ?? 0));
-
+  const playhead = store(world, Computed).localTime[scene.id()] ?? 0;
   const capture = await createCapture(world, scene, { dir });
   try {
-    for (const caption of capture.world.query(Caption)) caption.add(Hidden);
+    const frame = prepareCaptionFrame(capture.world, capture.node, playhead);
     const encoder = await createImageEncoder(capture.world, { frames: [frame], resolution: FRAME_HEIGHT });
     const result = await encoder.render();
     if (result.type === 'canceled') throw new Error('The frame capture was cancelled');

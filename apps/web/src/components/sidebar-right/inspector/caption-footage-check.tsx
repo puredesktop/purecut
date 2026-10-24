@@ -5,7 +5,8 @@
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { useTrait, useWorld } from "@diffusionstudio/koota-solid";
 import {
-  AssetId, Caption, Computed, FrameRate, colorToHex, getActiveEntity, getAsset, loadWebFont, resolveTranscript, store,
+  AssetId, Caption, Color, Computed, FrameRate, TextStyle, colorToHex, getActiveEntity, getAsset, getWebFonts, loadWebFont,
+  resolveTranscript, store,
 } from "@diffusionstudio/runtime";
 import { authoredElement } from "@diffusionstudio/reconciler";
 import { Button } from "@/components/ui/button";
@@ -14,26 +15,31 @@ import { cx } from "@/lib/cva";
 import { applyCaptionStyle, editableCaptions } from "@/engine/caption-editing";
 import { captureFrameWithoutCaptions } from "@/engine/caption-frame";
 import { useProject } from "@/context/project";
-import { CAPTION_PRESET_OPTIONS, captionPresetTextStyle } from "./caption-types";
+import { CAPTION_PRESET_OPTIONS, captionStyleFor } from "./caption-types";
 import {
-  HEAVY_COVERAGE, SAMPLE_CUE, assessReadability, layoutCaption, paintCaptionSample, paintSampleBackdrop, previewText,
+  HEAVY_COVERAGE, SAMPLE_CUE, assessCaptionPaints, highlightColors, layoutCaption, paintCaptionSample, paintSampleBackdrop,
+  previewText,
 } from "./caption-preview";
 
 import type { Transcript } from "@diffusionstudio/assets";
 import type { Entity } from "koota";
 import type { CaptionPresetOption } from "./caption-types";
-import type { Readability } from "./caption-preview";
+import type { CaptionReadability } from "./caption-preview";
 
 type Backdrop = "frame" | "bright" | "dark";
+type PreviewResult = { readability: CaptionReadability; coverage: number };
 
 const BACKDROP_LABELS: Record<Backdrop, string> = { frame: "This frame", bright: "Bright", dark: "Dark" };
-const VERDICT_LABELS: Record<Readability["verdict"], string> = { clear: "Reads clearly", patchy: "Patchy", lost: "Hard to read" };
-const VERDICT_DOTS: Record<Readability["verdict"], string> = {
+const VERDICT_DOTS: Record<CaptionReadability["verdict"], string> = {
   clear: "bg-emerald-500", patchy: "bg-amber-500", lost: "bg-destructive",
 };
 
-const parseHex = (value: unknown): number | undefined =>
-  typeof value === "string" && /^#?[0-9a-f]{6}$/i.test(value) ? parseInt(value.replace("#", ""), 16) : undefined;
+/** What a preview's verdict says, naming the highlight when it is the paint that fails. */
+function verdictLabel(readability: CaptionReadability): string {
+  if (readability.verdict === "clear") return "Reads clearly";
+  const what = readability.weakest === "highlight" ? "Highlight" : "Text";
+  return readability.verdict === "lost" ? `${what} hard to read` : `${what} patchy`;
+}
 
 function formatTime(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -114,21 +120,34 @@ export function CaptionFootageCheck(props: Props) {
     return { cue, seconds: playing ? at : cue.words[0]!.start };
   });
 
-  // Every preset's family, loaded before anything is measured in it.
-  const [fontsReady] = createResource(async () => {
-    const families = [...new Set(CAPTION_PRESET_OPTIONS.map(option => captionPresetTextStyle(option).fontFamily))];
-    await Promise.all(families.map(family =>
+  // The caption's own style props, which a preset change keeps: the TextStyle
+  // and Color traits move when they are edited, so reading them re-runs the
+  // previews.
+  const textStyle = useTrait(() => props.entity, TextStyle);
+  const baseColor = useTrait(() => props.entity, Color);
+  const authored = () => {
+    textStyle();
+    baseColor();
+    return authoredElement(props.entity)?.props ?? {};
+  };
+  /** Each preset's style on this caption: the preset with the caption's overrides over it. */
+  const styleFor = (option: CaptionPresetOption) => captionStyleFor(option, authored());
+
+  // Every font the previews draw in, loaded before anything is measured in it.
+  const fontKey = createMemo(() => [...new Set(CAPTION_PRESET_OPTIONS.map(option => {
+    const { style } = styleFor(option);
+    return `${style.fontWeight}|${style.fontFamily}`;
+  }))].join("\n"));
+  const [fontsReady] = createResource(fontKey, async key => {
+    const fonts = key.split("\n").map(entry => entry.split("|") as [string, string]);
+    const web = new Set(getWebFonts().map(font => font.family));
+    await Promise.all([...new Set(fonts.map(([, family]) => family))].filter(family => web.has(family)).map(family =>
       loadWebFont(world, family as Parameters<typeof loadWebFont>[1]).catch(() => undefined)));
     if (typeof document !== "undefined" && document.fonts) {
-      await Promise.all(CAPTION_PRESET_OPTIONS.map(option => {
-        const style = captionPresetTextStyle(option);
-        return document.fonts.load(`${style.fontWeight} ${style.fontSize}px "${style.fontFamily}"`).catch(() => []);
-      }));
+      await Promise.all(fonts.map(([weight, family]) => document.fonts.load(`${weight} 48px "${family}"`).catch(() => [])));
     }
     return true;
   });
-
-  const fill = () => parseHex(authoredElement(props.entity)?.props.fill) ?? 0xffffff;
   const placement = () => {
     const authored = authoredElement(props.entity)?.props;
     const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -157,7 +176,8 @@ export function CaptionFootageCheck(props: Props) {
       }
     } else paintSampleBackdrop(ctx, backdrop, canvas.width, canvas.height);
 
-    const style = captionPresetTextStyle(option);
+    const { style, fill } = styleFor(option);
+    const colors = colorsFor(option);
     const { cue, seconds } = sample();
     const text = previewText(option.look, cue, seconds);
     const measure = (value: string, font: string) => {
@@ -166,15 +186,21 @@ export function CaptionFootageCheck(props: Props) {
     };
     const layout = layoutCaption(option.look, style, text, scene, measure, placement());
     const { x, y, width, height } = layout.block;
-    let readability: Readability = { lost: 0, verdict: "clear" };
+    let readability: CaptionReadability = { lost: 0, verdict: "clear", weakest: "text" };
     if (width > 0 && height > 0) {
       const px = Math.max(0, Math.floor(x * scale));
       const py = Math.max(0, Math.floor(y * scale));
       const pw = Math.min(canvas.width - px, Math.ceil(width * scale));
       const ph = Math.min(canvas.height - py, Math.ceil(height * scale));
-      if (pw > 0 && ph > 0) readability = assessReadability(ctx.getImageData(px, py, pw, ph).data, fill(), option.look);
+      if (pw > 0 && ph > 0) {
+        readability = assessCaptionPaints(
+          ctx.getImageData(px, py, pw, ph).data,
+          { text: fill, highlights: highlightColors(option.look, colors) },
+          option.look,
+        );
+      }
     }
-    paintCaptionSample(ctx, { look: option.look, style, layout, text, fill: fill(), colors: colorsFor(option), scale });
+    paintCaptionSample(ctx, { look: option.look, style, layout, text, fill, colors, scale });
     return { readability, coverage: layout.coverage };
   };
 
@@ -182,14 +208,14 @@ export function CaptionFootageCheck(props: Props) {
     option: CaptionPresetOption;
     backdrop: Backdrop;
     width: number;
-    onResult?: (result: { readability: Readability; coverage: number }) => void;
+    onResult?: (result: PreviewResult) => void;
   }) => {
     let canvas!: HTMLCanvasElement;
     createEffect(() => {
       if (!fontsReady()) return;
       shot();
       sample();
-      fill();
+      authored();
       const result = paint(canvas, previewProps.option, previewProps.backdrop);
       if (result) previewProps.onResult?.(result);
     });
@@ -201,8 +227,8 @@ export function CaptionFootageCheck(props: Props) {
     />;
   };
 
-  const [results, setResults] = createSignal<Record<string, { readability: Readability; coverage: number }>>({});
-  const record = (key: string) => (result: { readability: Readability; coverage: number }) =>
+  const [results, setResults] = createSignal<Record<string, PreviewResult>>({});
+  const record = (key: string) => (result: PreviewResult) =>
     setResults(previous => ({ ...previous, [key]: result }));
 
   const apply = (scope: "this" | "all") => {
@@ -259,7 +285,7 @@ export function CaptionFootageCheck(props: Props) {
         // Without a rendered frame the tile stands on the bright shot, and its
         // verdict is filed under that shot, never passed off as the frame's.
         const backdrop = (): Backdrop => shot()?.frame ? "frame" : "bright";
-        const verdict = () => results()[`${option.name}:${backdrop()}`]?.readability.verdict;
+        const verdict = () => results()[`${option.name}:${backdrop()}`]?.readability;
         return <button
           type="button"
           role="radio"
@@ -279,8 +305,8 @@ export function CaptionFootageCheck(props: Props) {
           </div>
           <Show when={verdict()}>{v =>
             <div class="flex items-center gap-1 text-xxs text-muted-foreground">
-              <span class={cx("size-1.5 rounded-full shrink-0", VERDICT_DOTS[v()])} aria-hidden="true" />
-              {VERDICT_LABELS[v()]}
+              <span class={cx("size-1.5 rounded-full shrink-0", VERDICT_DOTS[v().verdict])} aria-hidden="true" />
+              {verdictLabel(v())}
             </div>}
           </Show>
         </button>;
@@ -300,7 +326,7 @@ export function CaptionFootageCheck(props: Props) {
           <Show when={detail(backdrop)}>{result =>
             <div class="flex items-center gap-1 text-xxs">
               <span class={cx("size-1.5 rounded-full shrink-0", VERDICT_DOTS[result().readability.verdict])} aria-hidden="true" />
-              <span class="truncate">{VERDICT_LABELS[result().readability.verdict]}</span>
+              <span class="truncate">{verdictLabel(result().readability)}</span>
             </div>}
           </Show>
         </div>}

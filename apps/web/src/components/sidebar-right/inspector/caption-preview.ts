@@ -9,7 +9,7 @@
  * the inspector's tiles and the checks' canvases.
  */
 
-import { CAPTION_MARGIN, CaptionAlign, TextBaseline, TextCase, groupBy, splitSequence } from "@diffusionstudio/runtime";
+import { CAPTION_MARGIN, CaptionAlign, FontStyle, TextAlign, TextBaseline, TextCase, groupBy, splitSequence } from "@diffusionstudio/runtime";
 
 import type { Transcript, WordGroup } from "@diffusionstudio/assets";
 import type { CaptionPresetStyle } from "@diffusionstudio/runtime";
@@ -52,9 +52,12 @@ export function previewText(look: CaptionPreviewLook, cue: Cue, seconds: number)
     const activeLine = right.length && seconds >= right[0]!.start ? 1 : 0;
     return { lines, activeLine, activeWord: null };
   }
+  // Cascade's decoder shows only the words that have started; the first is
+  // on screen from the moment the group is.
+  const shown = look.reveal ? group.filter((w, i) => i === 0 || w.start <= seconds) : group;
   const word = look.accent === "word" && group.length > 1 ? Math.max(0, spoken) : -1;
   return {
-    lines: [group.map(w => w.text).join(" ")],
+    lines: [shown.map(w => w.text).join(" ")],
     activeLine: 0,
     activeWord: word === -1 ? null : { line: 0, index: word },
   };
@@ -127,6 +130,43 @@ export function assessReadability(
   return { lost: share, verdict: share > 0.3 ? "lost" : share > 0.1 ? "patchy" : "clear" };
 }
 
+const WORST: Readability["verdict"][] = ["clear", "patchy", "lost"];
+
+export type CaptionReadability = Readability & {
+  /** Which paint reads worst: the caption's text, or the color marking the spoken words. */
+  weakest: "text" | "highlight";
+};
+
+/**
+ * Every paint a preset shows, judged on the same picture: the base text and
+ * each color its highlight can take (Spotlight's one, all three of Guinea's,
+ * which it cycles through line by line). The verdict is the worst of them,
+ * since a spoken word that vanishes is lost even when the rest reads.
+ */
+export function assessCaptionPaints(
+  pixels: ArrayLike<number>,
+  paints: { text: number; highlights: number[] },
+  look: Pick<CaptionPreviewLook, "shadow" | "difference">,
+): CaptionReadability {
+  let worst: CaptionReadability = { ...assessReadability(pixels, paints.text, look), weakest: "text" };
+  for (const color of paints.highlights) {
+    // Stark's difference blend is not a highlight preset; a highlight is drawn plainly.
+    const result = assessReadability(pixels, color, { shadow: look.shadow });
+    if (WORST.indexOf(result.verdict) > WORST.indexOf(worst.verdict)
+      || (result.verdict === worst.verdict && result.lost > worst.lost && worst.weakest === "highlight")) {
+      worst = { ...result, weakest: "highlight" };
+    }
+  }
+  return worst;
+}
+
+/** The colors a preset marks spoken words with, out of its slot colors. */
+export function highlightColors(look: CaptionPreviewLook, colors: number[]): number[] {
+  if (look.accent === "word") return colors.slice(0, 1);
+  if (look.accent === "line-color") return colors;
+  return [];
+}
+
 /** Past this share of the picture, a caption hides more than it helps. */
 export const HEAVY_COVERAGE = 0.2;
 
@@ -168,8 +208,12 @@ export function layoutCaption(
     const active = line === text.activeLine;
     const weight = look.accent === "line-weight" && active ? "500" : style.fontWeight;
     const size = look.accent === "line-color" && active ? Math.round(style.fontSize * 1.1) : style.fontSize;
-    return `${weight} ${size}px "${style.fontFamily}", sans-serif`;
+    const italic = style.fontStyle === FontStyle.NORMAL ? "" : "italic ";
+    return `${italic}${weight} ${size}px "${style.fontFamily}", sans-serif`;
   };
+  // Letter spacing widens every character, the space between words included.
+  const spacing = style.letterSpacing ?? 0;
+  const width = (value: string, line: number) => measure(value, font(line)) + spacing * value.length;
   const lineHeight = style.fontSize * Math.max(1, style.leading) * 1.1;
 
   // Wrapped to the box: a line too wide for it continues on the next.
@@ -181,7 +225,7 @@ export function layoutCaption(
     let firstWord = 0;
     applyTextCase(line, style.textCase).split(" ").forEach((word, index) => {
       const next = current ? `${current} ${word}` : word;
-      if (current && measure(next, font(source)) > look.box.width) {
+      if (current && width(next, source) > look.box.width) {
         wrapped.push({ text: current, source, firstWord });
         current = word;
         firstWord = index;
@@ -193,18 +237,17 @@ export function layoutCaption(
   const height = wrapped.length * lineHeight;
   const top = style.textBaseline === TextBaseline.TOP
     ? boxY
-    : boxY + (look.box.height - height) / 2;
-  const left = look.box.x !== undefined;
+    : style.textBaseline === TextBaseline.BOTTOM
+      ? boxY + look.box.height - height
+      : boxY + (look.box.height - height) / 2;
   const lines = wrapped.map((line, i) => {
-    const width = measure(line.text, font(line.source));
-    return {
-      text: line.text,
-      source: line.source,
-      firstWord: line.firstWord,
-      width,
-      x: left ? boxX : boxX + (look.box.width - width) / 2,
-      y: top + i * lineHeight,
-    };
+    const lineWidth = width(line.text, line.source);
+    const x = style.textAlign === TextAlign.LEFT
+      ? boxX
+      : style.textAlign === TextAlign.RIGHT
+        ? boxX + look.box.width - lineWidth
+        : boxX + (look.box.width - lineWidth) / 2;
+    return { text: line.text, source: line.source, firstWord: line.firstWord, width: lineWidth, x, y: top + i * lineHeight };
   });
   const minX = Math.min(...lines.map(line => line.x));
   const maxX = Math.max(...lines.map(line => line.x + line.width));
@@ -255,7 +298,7 @@ export type SampleOptions = {
   style: CaptionPresetStyle;
   layout: CaptionLayout;
   text: PreviewText;
-  /** The caption's base fill (white unless the file recolors it). */
+  /** The caption's base fill: the preset's (white), or the file's own `fill`. */
   fill: number;
   /** The preset's slot colors, filled. */
   colors: number[];
@@ -276,7 +319,14 @@ export function paintCaptionSample(ctx: CanvasRenderingContext2D, options: Sampl
     ctx.shadowBlur = look.shadow.blur * scale;
     ctx.shadowOffsetY = look.shadow.offsetY * scale;
   }
-  // The accent follows the line each wrapped line came from.
+  const spacing = options.style.letterSpacing ?? 0;
+  // Where the canvas spaces letters itself, measureText counts the spacing;
+  // elsewhere the words are only advanced by it.
+  const spaces = spacing !== 0 && "letterSpacing" in ctx;
+  if (spaces) ctx.letterSpacing = `${spacing}px`;
+  // The accent follows the line each wrapped line came from. Guinea cycles
+  // its line through all three slots; a still shows the first, and the
+  // readability check weighs all of them.
   layout.lines.forEach((line, i) => {
     ctx.font = layout.font(i);
     const lineColor = look.accent === "line-color" && line.source === text.activeLine ? colors[0] ?? fill : fill;
@@ -285,7 +335,7 @@ export function paintCaptionSample(ctx: CanvasRenderingContext2D, options: Sampl
       line.text.split(" ").forEach((word, index) => {
         ctx.fillStyle = hex(line.firstWord + index === text.activeWord!.index ? colors[0] ?? fill : fill);
         ctx.fillText(word, x, line.y);
-        x += ctx.measureText(`${word} `).width;
+        x += ctx.measureText(`${word} `).width + (spaces ? 0 : spacing * (word.length + 1));
       });
     } else {
       ctx.fillStyle = hex(lineColor);

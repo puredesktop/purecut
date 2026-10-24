@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { CAPTION_PRESETS } from "@diffusionstudio/reconciler";
+import { CAPTION_PRESETS, captionTextStyle } from "@diffusionstudio/reconciler";
 import { CAPTION_PRESET_STYLES, CaptionAlign } from "@diffusionstudio/runtime";
 
 import type { CaptionPreset as CaptionPresetName } from "@diffusionstudio/jsx";
@@ -32,6 +32,8 @@ export type CaptionPreviewLook = {
   group: GroupByOptions;
   /** Paper and Guinea break what they show across two lines. */
   lines: 1 | 2;
+  /** Cascade reveals a group word by word: only the words that have started are on screen. */
+  reveal?: boolean;
   /** What marks the words being spoken: a colored word, a colored larger line, a heavier line. */
   accent?: "word" | "line-color" | "line-weight";
   shadow?: { color: number; blur: number; offsetY: number };
@@ -64,7 +66,7 @@ export const CAPTION_PRESET_OPTIONS: CaptionPresetOption[] = [
     name: "cascade",
     label: "Cascade",
     slots: [],
-    look: { box: { width: 800, height: 200, x: 100 }, align: CaptionAlign.BOTTOM, group: { length: 50 }, lines: 1 },
+    look: { box: { width: 800, height: 200, x: 100 }, align: CaptionAlign.BOTTOM, group: { length: 50 }, lines: 1, reveal: true },
   },
   {
     name: "spotlight",
@@ -105,6 +107,28 @@ export const CAPTION_PRESET_OPTIONS: CaptionPresetOption[] = [
 /** The text style a preset writes onto its caption (font, weight, size, case). */
 export function captionPresetTextStyle(option: CaptionPresetOption): CaptionPresetStyle {
   return CAPTION_PRESET_STYLES[CAPTION_PRESETS[option.name]!];
+}
+
+/**
+ * The style a caption with these authored props would draw with under a
+ * preset: the preset's base coat with the caption's own font, size, case,
+ * spacing, alignment and fill over it, by the document's own rules
+ * (`captionTextStyle`). Applying a preset keeps those props, so this is what
+ * the caption will look like. A field the document would leave unset falls
+ * back to the preset's value here; `fill` is white where the caption draws
+ * with no base fill of its own (Stark's difference blend).
+ */
+export function captionStyleFor(
+  option: CaptionPresetOption,
+  props: Record<string, unknown>,
+): { style: CaptionPresetStyle; fill: number } {
+  const base = captionPresetTextStyle(option);
+  const resolved = captionTextStyle(CAPTION_PRESETS[option.name]!, props);
+  const style = { ...base };
+  for (const [key, value] of Object.entries(resolved.style)) {
+    if (value !== undefined) Object.assign(style, { [key]: value });
+  }
+  return { style, fill: resolved.fill ?? 0xffffff };
 }
 
 /** The preset a caption with no `preset` of its own plays. */
