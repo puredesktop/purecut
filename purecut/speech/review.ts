@@ -11,8 +11,12 @@ export type SpeechReview = {
   captions?: Transcript
   /** Why a word was suggested, by timeline word key (filler cleanup). */
   reasons?: Record<string, string>
-  /** The rule a pause cleanup used, so the review can say it in words. */
-  pause?: { minimum: number; retain: number }
+  /**
+   * The rule a pause cleanup used, so the review can say it in words, and the
+   * waveform silences (timeline seconds) it found: only a cut inside one of
+   * these is described as silence, also after its boundaries are moved.
+   */
+  pause?: { minimum: number; retain: number; silences: Range[] }
 }
 export const [speechOpen, setSpeechOpen] = createSignal(false)
 export const [speechReview, setSpeechReview] =

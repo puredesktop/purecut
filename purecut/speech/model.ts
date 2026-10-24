@@ -283,6 +283,35 @@ export function pauseRule(minimum: number, retain: number) {
     text: `Silences longer than ${formatSeconds(minimum)} are shortened so about ${formatSeconds(retain)} of quiet remains. Shorter pauses stay as they are, and spoken words are never cut.`,
   }
 }
+/** Waveform silences on the edited timeline, the same mapping pauseCuts uses. */
+export function timelineSilences(silences: Range[], clips: Clip[]): Range[] {
+  return ranges(
+    clips.flatMap(c =>
+      silences.flatMap(s => {
+        const start = Math.max(c.sourceIn, s.start),
+          end = Math.min(c.sourceIn + c.end - c.start, s.end)
+        return end > start
+          ? [{ start: c.start + start - c.sourceIn, end: c.start + end - c.sourceIn }]
+          : []
+      }),
+    ),
+  )
+}
+/**
+ * What a cut takes out, as far as the evidence goes. "silence" needs the
+ * waveform: a stretch with no transcribed words may still hold speech the
+ * transcript missed, so without silences it is only "untranscribed".
+ */
+export type CutContent = 'words' | 'partial' | 'silence' | 'untranscribed'
+export function cutContent(item: CutContext, silences?: Range[]): CutContent {
+  if (item.removed.length) return 'words'
+  if (item.trimmed.length) return 'partial'
+  return silences?.some(
+    s => s.start <= item.start + 1e-6 && s.end >= item.end - 1e-6,
+  )
+    ? 'silence'
+    : 'untranscribed'
+}
 export function pauseCuts(
   silences: Range[],
   clips: Clip[],

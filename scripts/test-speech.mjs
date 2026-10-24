@@ -241,3 +241,33 @@ console.log('PASS speech proposal replies list a bounded number of cuts')
   assert.throws(() => m.pauseCuts([], [], [], 1, 1))
 }
 console.log('PASS speech review: listed ranges, context words, totals and pause rule match the applied cuts')
+
+// "Silence" is only what the waveform found. Missing transcript words are not
+// silence, and a cut inside a word is speech.
+{
+  const at = (text, start, end, i) => ({ text, start, end, index: i, key: `w:${i}`, speaker: 'A' })
+  const spoken = [at('Long', 0, 0.5, 0), at('wooord', 1, 2, 1), at('then', 3, 3.4, 2), at('more', 5, 5.4, 3)]
+  const [inside] = m.cutContexts([{ start: 1.2, end: 1.3 }], spoken)
+  assert.deepEqual(inside.removed, [])
+  assert.deepEqual(inside.trimmed.map(w => w.text), ['wooord'])
+  assert.equal(m.cutContent(inside), 'partial')
+  assert.equal(m.cutContent(inside, [{ start: 0, end: 10 }]), 'partial', 'transcribed speech wins over a silence claim')
+  const [gap] = m.cutContexts([{ start: 3.6, end: 4.6 }], spoken)
+  assert.equal(m.cutContent(gap), 'untranscribed', 'an agent range between words is not known to be silent')
+  assert.equal(m.cutContent(gap, []), 'untranscribed')
+  assert.equal(m.cutContent(gap, [{ start: 3.5, end: 4.8 }]), 'silence')
+  // A boundary moved past the waveform silence is no longer called silence.
+  const [moved] = m.cutContexts([{ start: 3.6, end: 4.9 }], spoken)
+  assert.equal(m.cutContent(moved, [{ start: 3.5, end: 4.8 }]), 'untranscribed')
+  const [both] = m.cutContexts([{ start: 0.9, end: 2.1 }], spoken)
+  assert.equal(m.cutContent(both, [{ start: 0, end: 10 }]), 'words')
+  // Source silences map onto the edited timeline through the kept clips.
+  assert.deepEqual(
+    m.timelineSilences([{ start: 2, end: 4 }], [
+      { source: 'a', start: 0, end: 1, sourceIn: 0 },
+      { source: 'a', start: 1, end: 4, sourceIn: 2.5 },
+    ]),
+    [{ start: 1, end: 2.5 }],
+  )
+}
+console.log('PASS speech review: silence only where the waveform found it; partial words and untranscribed gaps say so')

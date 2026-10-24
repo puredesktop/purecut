@@ -88,6 +88,8 @@ async function reviewChecks(page) {
   assert.deepEqual(shown.shown, shown.expected)
   assert.equal(shown.total, `${shown.cuts.length} ${shown.cuts.length === 1 ? 'gap' : 'gaps'} · ${shown.removed} saved`)
   await review.locator('.cut-review-gap').first().waitFor()
+  // The waveform found this gap, so it may be called silence.
+  assert.match(await review.locator('.cut-review-gap').first().textContent(), /of silence$/)
   await review.getByText('Silences longer than 0.50 s', { exact: false }).waitFor()
   for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [375, 'light'], [375, 'dark']]) {
     await page.setViewportSize({ width, height: 900 })

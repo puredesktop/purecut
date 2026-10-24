@@ -59,6 +59,7 @@
 .cut-review-kept { opacity:.75; }
 .cut-review-removed { text-decoration:line-through; text-decoration-color:var(--destructive); background:color-mix(in srgb, var(--destructive) 12%, transparent); border-radius:2px; padding:0 2px; }
 .cut-review-gap { font-family:var(--platform-typography-font-family, sans-serif); font-size:11px; padding:1px 6px; margin:0 2px; border:1px dashed color-mix(in srgb, currentColor 35%, transparent); border-radius:999px; white-space:nowrap; vertical-align:2px; }
+.cut-review-caution { margin:4px 0 0; font-size:11px; line-height:1.4; opacity:.7; }
 .cut-review-warning { margin:4px 0 0; font-size:11px; line-height:1.4; color:var(--destructive); }
 .cut-review-actions { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-top:6px; font-size:11px; }
 .cut-review-adjust summary { cursor:pointer; padding:2px 4px; opacity:.75; }

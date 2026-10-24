@@ -6,6 +6,8 @@ import {
   createSignal,
   For,
   Index,
+  Match,
+  Switch,
   onCleanup,
   untrack,
   Show,
@@ -37,6 +39,7 @@ import {
 } from './editor'
 import { loadTranscript, saveTranscript, speechSourcePath } from './store'
 import {
+  cutContent,
   cutContexts,
   fillerSuggestions,
   formatSeconds,
@@ -47,6 +50,7 @@ import {
   selectedPassages,
   searchTranscript,
   subtract,
+  timelineSilences,
   timelineWords,
   type CutContext,
   type Range,
@@ -574,7 +578,13 @@ export function SpeechPanel() {
                         propose(
                           pauseCuts(wave.silences, clips(state), words(), minimum(), retain()),
                           'Shorten pauses',
-                          { pause: { minimum: minimum(), retain: retain() } },
+                          {
+                            pause: {
+                              minimum: minimum(),
+                              retain: retain(),
+                              silences: timelineSilences(wave.silences, clips(state)),
+                            },
+                          },
                         )
                       })
                     }
@@ -728,9 +738,11 @@ export function SpeechPanel() {
             )
             const total = () => removedSeconds(proposal().cuts)
             const count = () => proposal().cuts.length
+            const contentOf = (item: CutContext) =>
+              transcript() ? cutContent(item, proposal().pause?.silences) : 'unknown'
             const reasonOf = (item: CutContext) => {
               const reasons = proposal().reasons
-              if (!reasons) return kind() === 'pauses' ? 'Pause' : ''
+              if (!reasons) return contentOf(item) === 'silence' ? 'Pause' : ''
               return [...new Set(item.removed.map(w => reasons[w.key]).filter(Boolean))]
                 .map(r => (r === 'Filler' ? 'Filler' : 'Possible repetition'))
                 .join(' · ')
@@ -786,20 +798,44 @@ export function SpeechPanel() {
                             <Show when={item().before.length}>
                               <span class="cut-review-kept">…{item().before.map(w => w.text).join(' ')} </span>
                             </Show>
-                            <Show when={item().removed.length} fallback={
-                              <span class="cut-review-gap">{formatSeconds(item().duration)} of silence</span>
-                            }>
-                              <del class="cut-review-removed">{excerpt(item().removed)}</del>
-                            </Show>
+                            <Switch>
+                              <Match when={contentOf(item()) === 'words'}>
+                                <del class="cut-review-removed">{excerpt(item().removed)}</del>
+                              </Match>
+                              <Match when={contentOf(item()) === 'partial'}>
+                                <del class="cut-review-removed">part of “{item().trimmed.map(w => w.text).join(' ')}”</del>
+                              </Match>
+                              <Match when={contentOf(item()) === 'silence'}>
+                                <span class="cut-review-gap">{formatSeconds(item().duration)} of silence</span>
+                              </Match>
+                              <Match when={contentOf(item()) === 'untranscribed'}>
+                                <span class="cut-review-gap">{formatSeconds(item().duration)} · no transcribed words</span>
+                              </Match>
+                              <Match when={contentOf(item()) === 'unknown'}>
+                                <span class="cut-review-gap">{formatSeconds(item().duration)} · transcript not loaded</span>
+                              </Match>
+                            </Switch>
                             <Show when={item().after.length}>
                               <span class="cut-review-kept"> {item().after.map(w => w.text).join(' ')}…</span>
                             </Show>
                           </p>
-                          <Show when={item().trimmed.length}>
-                            <p class="cut-review-warning">
-                              Also clips the edge of “{item().trimmed.map(w => w.text).join(' ')}”. Adjust the boundary if it sounds cut off.
-                            </p>
-                          </Show>
+                          <Switch>
+                            <Match when={contentOf(item()) === 'partial'}>
+                              <p class="cut-review-warning">
+                                This cuts into a spoken word rather than between words. Adjust the boundary or keep this section.
+                              </p>
+                            </Match>
+                            <Match when={contentOf(item()) === 'words' && item().trimmed.length}>
+                              <p class="cut-review-warning">
+                                Also clips the edge of “{item().trimmed.map(w => w.text).join(' ')}”. Adjust the boundary if it sounds cut off.
+                              </p>
+                            </Match>
+                            <Match when={contentOf(item()) === 'untranscribed' || contentOf(item()) === 'unknown'}>
+                              <p class="cut-review-caution">
+                                Not checked against the audio. Listen before applying.
+                              </p>
+                            </Match>
+                          </Switch>
                           <div class="cut-review-actions">
                             <Button variant="ghost" size="small" disabled={busy() && previewing() !== index} onClick={() => preview(proposal(), index)}>
                               {previewing() === index ? 'Stop' : 'Listen'}

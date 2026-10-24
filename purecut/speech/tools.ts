@@ -10,10 +10,11 @@ import {
   ranges,
   removedSeconds,
   subtract,
+  timelineSilences,
   timelineWords,
   type Range,
 } from './model'
-import { reviewSpeech, reviewedCuts, setSpeechOpen } from './review'
+import { reviewSpeech, reviewedCuts, setSpeechOpen, type SpeechReview } from './review'
 
 export async function speechTool(name: string, args: Record<string, unknown>) {
   if (name === 'openCutTranscript') {
@@ -82,7 +83,7 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
   }
   if (name === 'proposeCutSpeechCleanup') {
     let proposed: Range[]
-    let detail: { reasons: Record<string, string> } | { pause: { minimum: number; retain: number } }
+    let detail: Pick<SpeechReview, 'reasons'> | Pick<SpeechReview, 'pause'>
     if (args.mode === 'fillers') {
       if (args.includeRepetitions !== undefined && typeof args.includeRepetitions !== 'boolean')
         throw Error('includeRepetitions must be a boolean.')
@@ -96,7 +97,7 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
       const wave = await waveformAsset(snapshot.asset)
       assertCurrent(snapshot)
       proposed = pauseCuts(wave.silences, clips(snapshot), words, minimum, retain)
-      detail = { pause: { minimum, retain } }
+      detail = { pause: { minimum, retain, silences: timelineSilences(wave.silences, clips(snapshot)) } }
     } else throw Error('Choose fillers or pauses.')
     const cuts = reviewedCuts(snapshot, proposed)
     if (!cuts.length) return { status: 'no-matches', message: 'No matching cleanup suggestions; nothing changed.' }
