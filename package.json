@@ -34,7 +34,10 @@
     "typecheck": "npm run check:purecut",
     "test:purecut:speech": "node scripts/test-speech.mjs && node scripts/test-speech-status.mjs && node scripts/test-speech-browser.mjs",
     "test:purecut:speech:native": "node scripts/test-speech-electron.mjs",
-    "check:dependencies": "node scripts/check-dependencies.mjs"
+    "check:dependencies": "node scripts/check-dependencies.mjs",
+    "test:purecut:release-matrix": "node scripts/test-release-matrix.mjs",
+    "release-matrix:report": "node scripts/release-matrix.mjs --report",
+    "release-matrix:run": "node scripts/release-matrix.mjs --run"
   },
   "devDependencies": {
     "@types/babel__standalone": "^7.1.9",
