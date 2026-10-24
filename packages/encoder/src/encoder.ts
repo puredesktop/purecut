@@ -19,7 +19,7 @@ import {
 	AudioPlayback, Computed,
 	Position, Offset, Rotation, Scale, Skew,
 	Time, FrameRate, RenderSurface, AudioEngine, Root,
-	FramePromises,
+	FramePromises, SourceError, getEntityTree,
 } from '@diffusionstudio/runtime';
 
 import { TargetBuffer } from './buffer';
@@ -66,6 +66,10 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 
 	try {
 		await warmupAssets(world);
+		const sourceError = getEntityTree(world, scene)
+			.map(entity => entity.get(SourceError)?.value)
+			.find(Boolean);
+		if (sourceError) throw asExportError('decode', sourceError);
 	} catch (error) {
 		throw asExportError('decode', error);
 	}

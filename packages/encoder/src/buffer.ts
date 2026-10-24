@@ -4,7 +4,7 @@
 
 import { BufferTarget, StreamTarget, Target } from 'mediabunny';
 
-import type { ContainerFormat, WritableFileTarget } from './types';
+import { asExportError, type ContainerFormat, type WritableFileTarget } from './types';
 
 export class TargetBuffer {
   public target: Target;
@@ -26,7 +26,22 @@ export class TargetBuffer {
   ): Promise<TargetBuffer> {
     if (handle) {
       const fileStream = await handle.createWritable();
-      return new TargetBuffer(new StreamTarget(fileStream, { chunked: true }), false, handle);
+      const writer = fileStream.getWriter();
+      const stream = new WritableStream<Parameters<typeof writer.write>[0]>({
+        write: async chunk => {
+          try { await writer.write(chunk); }
+          catch (error) { throw asExportError('write', error); }
+        },
+        close: async () => {
+          try { await writer.close(); }
+          catch (error) { throw asExportError('write', error); }
+        },
+        abort: async reason => {
+          try { await writer.abort(reason); }
+          catch (error) { throw asExportError('write', error); }
+        },
+      });
+      return new TargetBuffer(new StreamTarget(stream, { chunked: true }), false, handle);
     }
 
     return new TargetBuffer(new BufferTarget(), 'in-memory', undefined);

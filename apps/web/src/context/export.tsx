@@ -43,7 +43,6 @@ export function ExportProvider(props: { children: JSX.Element }) {
   const sceneDurationSeconds = (scene: Entity) =>
     (scene.get(Computed)?.duration ?? 0) / (world.get(FrameRate)?.value || 30);
 
-  let lastAttempt: { scene: Entity; config: ExportConfig } | undefined;
   const failureToast = "export-failure";
 
   const nextStep: Record<ExportStage, string> = {
@@ -53,27 +52,40 @@ export function ExportProvider(props: { children: JSX.Element }) {
     write: "Check that the destination folder is available and has free space, then retry.",
   };
 
-  const showFailure = (reason: unknown) => {
+  const showBusy = () => {
+    toast.error("Export already running", {
+      description: "Wait for it to finish or cancel it before starting another export.",
+    });
+  };
+
+  const showFailure = (reason: unknown, attempt: { scene: Entity; config: ExportConfig }) => {
     const error = asExportError("render", reason);
     console.error("Export failed:", error);
     toast.dismiss(failureToast);
     toast.error("Export failed", {
       id: failureToast,
-      description: `${nextStep[error.stage]} ${error.message}`,
+      description: `${nextStep[error.stage]}\nDetails: ${error.message}`,
       duration: Infinity,
       closeButton: true,
       action: {
         label: "Retry export",
-        onClick: () => {
-          if (lastAttempt) void exportScene(lastAttempt.scene, lastAttempt.config);
-        },
+        onClick: () => void exportScene(attempt.scene, attempt.config),
       },
     });
     return error;
   };
 
   const exportScene: ExportContextValue["exportScene"] = async (scene, config) => {
-    if (!scene?.isAlive()) return;
+    if (!scene?.isAlive()) {
+      toast.error("Scene no longer available", {
+        description: "The scene for this export has been deleted, so it cannot be retried.",
+      });
+      return;
+    }
+    if (renderOverlay()) {
+      showBusy();
+      return;
+    }
     toast.dismiss(failureToast);
 
     const format = config.format ?? "mp4";
@@ -129,8 +141,10 @@ export function ExportProvider(props: { children: JSX.Element }) {
       return;
     }
 
-    lastAttempt = { scene, config: structuredClone(config) };
-    const attempt = lastAttempt;
+    const attempt = { scene, config: structuredClone(config) };
+    const disposePartial = async () => {
+      if (target instanceof ElectronWritableFileHandle) await target.dispose().catch(() => {});
+    };
     track('export_started', {
       format,
       resolution: attempt.config.video?.resolution,
@@ -151,14 +165,17 @@ export function ExportProvider(props: { children: JSX.Element }) {
       const result = await renderScene(engine, { scene, target, config: attempt.config, dir: exportDir });
 
       if (result.type === "error") {
-        const error = showFailure(result.error);
+        await disposePartial();
+        const error = showFailure(result.error, attempt);
         track('export_failed', {
           format,
           stage: error.stage,
           duration_ms: Math.round(performance.now() - startedAt),
           error: error.message.slice(0, 200) || 'unknown',
         });
-      } else if (result.type === "success") {
+      } else if (result.type === "canceled") {
+        await disposePartial();
+      } else {
         if (import.meta.env.VITE_PURECUT && target instanceof ElectronWritableFileHandle) {
           try {
             await recordSuccessfulExport({ projectId: exportProjectId, projectDir: exportDir,
@@ -169,7 +186,6 @@ export function ExportProvider(props: { children: JSX.Element }) {
             });
           }
         }
-        lastAttempt = undefined;
         toast.dismiss(failureToast);
         toast("Export complete", {
           description: "Your video has been successfully exported",
@@ -183,7 +199,12 @@ export function ExportProvider(props: { children: JSX.Element }) {
         });
       }
     } catch (e) {
-      const error = showFailure(e);
+      await disposePartial();
+      if (e instanceof Error && e.message.includes("An export is already running")) {
+        showBusy();
+        return;
+      }
+      const error = showFailure(e, attempt);
       track('export_failed', {
         format,
         stage: error.stage,

@@ -10,7 +10,7 @@ import { ProjectProvider } from '../apps/web/src/context/project';
 import { rememberProjectBundle, forgetProjectBundle } from '../apps/web/src/lib/db';
 import { mainBridge } from '../apps/web/src/lib/ipc';
 import { MAIN_CHANNELS } from '../purecut/editor-core/main-channels';
-import { type ExportConfig } from '../apps/web/src/context/render';
+import { cancelRender, renderOverlay, type ExportConfig } from '../apps/web/src/context/render';
 import type { ProjectInfo } from '../apps/web/src/projects';
 
 const RECT_BUNDLE = `
@@ -22,7 +22,7 @@ const RECT_BUNDLE = `
   }});
 `;
 
-export async function checkExportRecovery(bridge: { call: (...args: any[]) => Promise<any> }, inspect?: () => Promise<void>) {
+export async function checkExportRecovery(bridge: { call: (...args: any[]) => Promise<any> }) {
   const projectId = 'export-retry-fixture';
   const host = document.createElement('div');
   document.body.append(host);
@@ -34,7 +34,9 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
   let history: unknown[] = [];
   let historyVersion = 0;
   let failWrites = false;
+  let failChunks = false;
   let writeAttempts = 0;
+  let aborts = 0;
   const check = (value: unknown, message: string) => { if (!value) throw Error(message); };
   const wait = async (predicate: () => unknown, message: string) => {
     const deadline = performance.now() + 10000;
@@ -65,7 +67,12 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
       if (failWrites) throw Error('Fixture destination is full');
       return { id: 'retry-export-stream' };
     }
-    if (channel === MAIN_CHANNELS.FILE_WRITE_CHUNK || channel === MAIN_CHANNELS.FILE_WRITE_CLOSE || channel === MAIN_CHANNELS.FILE_WRITE_ABORT) return {};
+    if (channel === MAIN_CHANNELS.FILE_WRITE_CHUNK) {
+      if (failChunks) throw Error('Fixture destination filled during export');
+      return {};
+    }
+    if (channel === MAIN_CHANNELS.FILE_WRITE_CLOSE) return {};
+    if (channel === MAIN_CHANNELS.FILE_WRITE_ABORT) { aborts++; return {}; }
     throw Error(`Unexpected export main call: ${channel}`);
   }) as typeof mainBridge.call;
 
@@ -107,9 +114,13 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
 
   const failure = () => toast.getHistory().filter(entry => 'title' in entry && entry.title === 'Export failed').at(-1);
   let lastFailure: unknown;
-  const retry = async (settled: () => unknown) => {
+  const retryAction = () => {
     const action = failure()?.action;
     check(action && typeof action === 'object' && 'label' in action && action.label === 'Retry export', 'failure must expose a Retry export action');
+    return (action as { onClick: () => void }).onClick;
+  };
+  const retry = async (settled: () => unknown) => {
+    retryAction();
     const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === 'Retry export');
     check(button, 'Retry export must be a real button');
     button!.click();
@@ -121,6 +132,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     lastFailure = current;
     const description = String(current.description ?? '');
     check(description.includes(nextStep), `${stage} failure must explain the next step: ${description}`);
+    check(description.includes('Details:'), `${stage} failure must separate error details from the next step`);
     check(current.duration === Infinity, `${stage} failure must keep Retry available`);
     check(JSON.stringify(config) === JSON.stringify(configSnapshot), `${stage} failure changed the selected settings`);
   };
@@ -134,14 +146,13 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     await api.exportScene(scene.entity, config);
     await expectFailure('render', 'Try the export again');
     check(host.textContent?.includes('Unrelated notice'), 'export failures must not dismiss unrelated notifications');
-    await inspect?.();
     await retry(() => renderAttempts === 2);
     await expectFailure('render', 'Try the export again');
     engine.stop = originalStop;
     toast.dismiss();
 
     await rememberProjectBundle(projectId, RECT_BUNDLE.replace("Rect({ width: 320, height: 180, end: 1, fill: '#163f41' })", "Video({ src: 'broken.webm', width: 320, height: 180, end: 1 })").replace("const { Stage, Scene, Rect }", "const { Stage, Scene, Video }"));
-    library.resolve = (() => { decodeAttempts++; throw Error('Fixture media decode failure'); }) as typeof originalResolve;
+    library.resolve = (() => { decodeAttempts++; return Promise.reject(Error('Fixture media decode failure')); }) as typeof originalResolve;
     await api.exportScene(scene.entity, config);
     await expectFailure('decode', 'source media');
     const firstDecodeAttempts = decodeAttempts;
@@ -155,8 +166,20 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     CanvasSource.prototype.add = (async () => { encodeAttempts++; throw Error('Fixture encoder failure'); }) as typeof originalVideoAdd;
     await api.exportScene(scene.entity, config);
     await expectFailure('encode', 'resolution or another codec');
+    check(aborts === 1, 'a failed export must dispose its partial file');
+    const staleRetry = retryAction();
     await retry(() => encodeAttempts === 2);
     await expectFailure('encode', 'resolution or another codec');
+    check(aborts === 2, 'every failed retry must dispose its partial file');
+
+    engine.stop = () => { throw Error('Later attempt failed before rendering'); };
+    await api.exportScene(scene.entity, { ...config, format: 'ogg' });
+    await expectFailure('render', 'Try the export again');
+    engine.stop = originalStop;
+    staleRetry();
+    await wait(() => encodeAttempts === 3, 'an older Retry must keep its own settings');
+    await expectFailure('encode', 'resolution or another codec');
+    check(aborts === 3, 'an older Retry must clean up its own failed output');
     CanvasSource.prototype.add = originalVideoAdd;
     toast.dismiss();
 
@@ -167,9 +190,37 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     await retry(() => writeAttempts === firstWriteAttempts + 1);
     await expectFailure('write', 'destination');
     failWrites = false;
-    await retry(() => history.length === 1);
+    toast.dismiss();
+
+    failChunks = true;
+    await api.exportScene(scene.entity, config);
+    await expectFailure('write', 'free space');
+    check(aborts === 4, 'a chunk-write failure must dispose its partial file');
+    const deletedSceneRetry = retryAction();
+    failChunks = false;
+    toast.dismiss();
+
+    await rememberProjectBundle(projectId, RECT_BUNDLE.replace('end: 1', 'end: 600'));
+    const pending = api.exportScene(scene.entity, config);
+    await wait(() => renderOverlay(), 'long export did not start');
+    await api.exportScene(scene.entity, { ...config, video: { ...config.video, bitrate: 123_456 } });
+    const busy = toast.getHistory().find(entry => 'title' in entry && entry.title === 'Export already running');
+    check(busy, 'a concurrent export must explain that an export is already running');
+    check(!(busy as { action?: unknown }).action, 'a busy export must not offer Retry');
+    const beforeCancelAborts = aborts;
+    cancelRender();
+    await pending;
+    check(aborts === beforeCancelAborts + 1, 'a cancelled export must dispose its partial file');
+
+    await rememberProjectBundle(projectId, RECT_BUNDLE);
+    await deletedSceneRetry();
+    await wait(() => history.length === 1, 'successful retry did not finish');
     check(JSON.stringify((history[0] as { config: unknown }).config) === JSON.stringify(configSnapshot), 'successful retry history must preserve every export setting');
     check(toast.getHistory().some(entry => 'title' in entry && entry.title === 'Export complete'), 'successful retry must report completion');
+
+    scene.entity.destroy();
+    deletedSceneRetry();
+    await wait(() => toast.getHistory().some(entry => 'title' in entry && entry.title === 'Scene no longer available'), 'Retry after scene deletion must explain what happened');
   } finally {
     CanvasSource.prototype.add = originalVideoAdd;
     library.resolve = originalResolve;
