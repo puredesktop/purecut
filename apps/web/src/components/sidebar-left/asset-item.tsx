@@ -5,7 +5,7 @@
 import { createSignal, onMount, onCleanup, Show, createMemo } from "solid-js";
 import { toast } from "somoto";
 import { useWorld } from "@diffusionstudio/koota-solid";
-import { assetName } from "@diffusionstudio/assets";
+import { assetName, basename } from "@diffusionstudio/assets";
 import { playbackAsset, setPlaybackProxy } from '@diffusionstudio/runtime';
 import { exportSourceSubtitles, insertAssetAtPlayhead, replaceAssetSource, saveAssetAs } from "@/engine/asset-actions";
 import {
@@ -21,6 +21,7 @@ import { AssetThumbnail } from "../ui/asset-thumbnail";
 import { formatAssetDuration } from "@/utils";
 import { useLibrary } from "@/engine/library";
 import { ASSET_DRAG_TYPE } from "./folder-item";
+import { missingMediaMessage } from "@/engine/import-outcomes";
 
 import type { Asset } from "@diffusionstudio/assets";
 
@@ -114,7 +115,7 @@ export function LazyAssetItem(props: LazyAssetItemProps) {
 
   const handleReplaceMedia = async () => {
     const lib = library();
-    if (lib) await replaceAssetSource(lib, props.asset);
+    if (lib) await replaceAssetSource(world, lib, props.asset);
   };
 
   const handleSaveAs = () => saveAssetAs(props.asset);
@@ -139,9 +140,10 @@ export function LazyAssetItem(props: LazyAssetItemProps) {
             <AssetThumbnail asset={props.asset} class="absolute inset-0" cache={library()?.cache} />
           </Show>
           <Show when={props.asset.sourceError}>
-            <div class="absolute inset-0 flex flex-col items-center justify-center gap-1 p-2" title={props.asset.sourceError}>
-              <span class="text-xs text-foreground">Media unavailable</span>
-              <button class="text-xs underline focus-ring" onClick={event => { event.stopPropagation(); void handleReplaceMedia(); }}>Locate file</button>
+            <div class="absolute inset-0 flex flex-col items-center justify-center gap-1 p-2 text-center" title={missingMediaMessage(world, props.asset)}>
+              <span class="text-xs text-foreground">File missing</span>
+              <span class="max-w-full truncate text-xxs text-muted-foreground">{basename(props.asset.source)}</span>
+              <button class="text-xs underline focus-ring" onClick={event => { event.stopPropagation(); void handleReplaceMedia(); }}>Replace media…</button>
             </div>
           </Show>
           <Show when={assetDuration()}>
@@ -195,7 +197,7 @@ export function LazyAssetItem(props: LazyAssetItemProps) {
             Rename
           </ContextMenuItem>
           <ContextMenuItem onSelect={handleReplaceMedia}>
-            {props.asset.sourceError ? 'Locate file...' : 'Replace'}
+            {props.asset.sourceError ? 'Replace media…' : 'Replace'}
           </ContextMenuItem>
           <ContextMenuItem onSelect={handleSaveAs}>
             Save as

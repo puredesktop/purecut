@@ -109,7 +109,19 @@ interface VariableOp {
 	after: InspectValue;
 }
 
-type HistoryOp = PropOp | TextOp | InsertOp | RemoveOp | MoveOp | VariableOp;
+/**
+ * A change made outside the document — the library pointing an asset at
+ * other bytes — that the document's history still owns a step for, so Undo
+ * takes it back in its turn. It names no source; it carries its own two
+ * directions.
+ */
+interface LibraryOp {
+	kind: 'library';
+	undo: () => void;
+	redo: () => void;
+}
+
+type HistoryOp = PropOp | TextOp | InsertOp | RemoveOp | MoveOp | VariableOp | LibraryOp;
 
 /**
  * The identity a sliding op coalesces on: the same prop of the same element,
@@ -201,6 +213,26 @@ export class EditHistory {
 		if (!this.gesture) return;
 		this.gesture = false;
 		if (this.open) this.commit();
+	}
+
+	/**
+	 * Records a library change as a step of its own, after whatever burst is
+	 * open. `undo` and `redo` run when Undo and Redo reach it; they may finish
+	 * later (the library reads files), and report their own failures. Returns
+	 * an Undo action that refuses to undo a newer edit, for a toast button.
+	 */
+	public recordLibraryStep(step: { undo: () => void; redo: () => void }): () => boolean {
+		if (this.open) this.commit();
+		const transaction: Transaction = { ops: [{ kind: 'library', ...step }], gesture: false, committedAt: performance.now() };
+		this.undos.push(transaction);
+		if (this.undos.length > MAX_TRANSACTIONS) this.undos.shift();
+		this.redos = [];
+		this.changed();
+		return () => {
+			if ((this.open?.ops.length ?? 0) > 0 || this.undos[this.undos.length - 1] !== transaction) return false;
+			this.undo();
+			return true;
+		};
 	}
 
 	/** Takes back the last step, and hands it to redo. */
@@ -471,6 +503,10 @@ export class EditHistory {
 				this.editor.editVariable(op.file, op.name, op.before);
 				return;
 			}
+			case 'library': {
+				op.undo();
+				return;
+			}
 		}
 	}
 
@@ -505,6 +541,10 @@ export class EditHistory {
 			}
 			case 'variable': {
 				this.editor.editVariable(op.file, op.name, op.after);
+				return;
+			}
+			case 'library': {
+				op.redo();
 				return;
 			}
 		}

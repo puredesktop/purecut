@@ -8,7 +8,7 @@
 
 import { assetName } from './types';
 
-import type { AssetLibrary, ImportResult } from './library';
+import type { AssetLibrary, ImportOutcome, ImportResult } from './library';
 import type { Asset } from './types';
 
 /** Opens the file picker; resolves to what was picked ([] on cancel). */
@@ -49,7 +49,11 @@ export async function importFiles(library: AssetLibrary, files: ReadonlyArray<Fi
 		if (path) paths.push(path);
 		else unnamed.push(file);
 	}
-	return { ...(await library.import(paths, { folder })), unnamed };
+	const result = await library.import(paths, { folder });
+	const refused = unnamed.map((file): ImportOutcome => ({
+		source: file.name, name: file.name, status: 'failed', reason: 'Only files on this computer can be added to the library.',
+	}));
+	return { ...result, outcomes: [...result.outcomes, ...refused], unnamed };
 }
 
 /**

@@ -127,7 +127,7 @@ export function SceneInitOverlay() {
   const handleImportIntoNewScene = async () => {
     const library = world.get(Library);
     if (!library) return;
-    const assets = await pickAndImport(library, '');
+    const { assets } = await pickAndImport(library, '');
     if (assets?.length) insertAssetsInNewScene(world, assets, sceneOptions());
     else handleInitializeScene();
   };
@@ -150,7 +150,7 @@ export function SceneInitOverlay() {
     const files = droppedFiles(event);
 
     const assets = assetIds.map((id) => library.get(id)).filter((asset) => asset != null);
-    if (files.length) assets.push(...await importFiles(library, files, ''));
+    if (files.length) assets.push(...(await importFiles(library, files, '')).assets);
     if (!assets.length) return;
 
     insertAssetsInNewScene(world, assets, sceneOptions());
