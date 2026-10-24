@@ -87,9 +87,12 @@ export async function pickAndImport(
  * new file. A file of another kind is refused with why. The toast saying it
  * was replaced carries an Undo that puts the old file back. Returns the
  * relinked asset, or null when the picker was dismissed or the relink failed
- * (reported).
+ * (reported). `onRestored` hears of the asset an Undo brings back, whose id
+ * is the old one again.
  */
-export async function replaceAssetSource(library: AssetLibrary, asset: Asset): Promise<Asset | null> {
+export async function replaceAssetSource(
+  library: AssetLibrary, asset: Asset, onRestored?: (asset: Asset) => void,
+): Promise<Asset | null> {
   const previous = { ...asset };
   try {
     const [file] = await pickFiles({ multiple: false });
@@ -104,7 +107,7 @@ export async function replaceAssetSource(library: AssetLibrary, asset: Asset): P
     forgetAssetPeaks(asset.id);
     toast(`Replaced ${assetName(asset)}`, {
       description: `Every clip using it now plays ${file.name}.`,
-      action: { label: "Undo", onClick: () => void undoReplace(library, relinked, previous) },
+      action: { label: "Undo", onClick: () => void undoReplace(library, relinked, previous, onRestored) },
     });
     return relinked;
   } catch (error) {
@@ -113,11 +116,13 @@ export async function replaceAssetSource(library: AssetLibrary, asset: Asset): P
   }
 }
 
-async function undoReplace(library: AssetLibrary, current: Asset, previous: Asset): Promise<void> {
+async function undoReplace(
+  library: AssetLibrary, current: Asset, previous: Asset, onRestored?: (asset: Asset) => void,
+): Promise<void> {
   try {
     forgetAssetMedia(current.id);
     forgetAssetPeaks(current.id);
-    await library.restore(current, previous);
+    onRestored?.(await library.restore(current, previous));
   } catch (error) {
     toast.error("Could not undo the replacement", { description: (error as Error).message });
   }

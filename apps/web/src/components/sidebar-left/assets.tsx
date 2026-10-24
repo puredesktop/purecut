@@ -6,7 +6,7 @@ import { basename, dirname } from "@diffusionstudio/assets";
 import { useWorld } from "@diffusionstudio/koota-solid";
 import { usePromptInput } from "@/context/prompt-input";
 import { createDefaultConfig } from "@/components/genai/prompt-input";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import {
@@ -148,6 +148,9 @@ export function Assets() {
     while (folder && !folders.has(folder)) folder = dirname(folder);
     setCurrentFolder(folder);
   });
+
+  // An import summary is of the project it was made in.
+  createEffect(on(library, () => setImportSummary(null), { defer: true }));
 
   const withLibrary = (run: (library: AssetLibrary) => void | Promise<void>) => {
     const lib = library();

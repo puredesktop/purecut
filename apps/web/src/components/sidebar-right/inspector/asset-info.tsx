@@ -112,7 +112,9 @@ function AssetDetails() {
     const asset = selection.asset();
     if (!lib || !asset) return;
     // A relink mints a new id; keep the panel on the asset.
-    const next = await replaceAssetSource(lib, asset);
+    const next = await replaceAssetSource(lib, asset, restored => {
+      if (selection.asset()?.id === next?.id) selection.select(restored);
+    });
     if (next) selection.select(next);
   };
 
