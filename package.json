@@ -34,7 +34,9 @@
     "typecheck": "npm run check:purecut",
     "test:purecut:speech": "node scripts/test-speech.mjs && node scripts/test-speech-browser.mjs",
     "test:purecut:speech:native": "node scripts/test-speech-electron.mjs",
-    "check:dependencies": "node scripts/check-dependencies.mjs"
+    "check:dependencies": "node scripts/check-dependencies.mjs",
+    "test:purecut:large-media": "node scripts/test-large-media-node.mjs",
+    "test:purecut:large-media:browser": "node scripts/test-large-media.mjs"
   },
   "devDependencies": {
     "@types/babel__standalone": "^7.1.9",

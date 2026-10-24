@@ -7,6 +7,7 @@ import {
   basename,
   type ProjectFiles,
 } from "./platform-files";
+import { holdMediaStaging, sweepMediaStaging } from "./media-staging";
 import { starter } from "./starter";
 import { validateScopedEdits } from "./scoped-edits";
 import { readCompiledSource, rememberCompiledSource } from './compile-cache';
@@ -25,6 +26,9 @@ export class ProjectService {
       target: string;
       handle: FileSystemFileHandle;
       writer: FileSystemWritableFileStream;
+      release: () => void;
+      controller: AbortController;
+      publishing: boolean;
     }
   >();
   constructor(
@@ -33,6 +37,49 @@ export class ProjectService {
   ) {}
   async init() {
     this.root = await this.fs.root();
+    await navigator.locks.request("purecut-project-io", () => this.stagingRoot());
+  }
+  private async stagingRoot() {
+    const root = await navigator.storage.getDirectory();
+    await sweepMediaStaging(root);
+    return root;
+  }
+  private async discardStream(id: string) {
+    const stream = this.streams.get(id);
+    if (!stream) return;
+    this.streams.delete(id);
+    try {
+      const root = await navigator.storage.getDirectory();
+      await root.removeEntry("cut-" + id);
+    } catch {
+      // Cleanup must preserve the write error. A future sweep retries deletion.
+    } finally {
+      stream.release();
+    }
+  }
+  private async preparePublication(id: string) {
+    const stream = this.streams.get(id);
+    if (!stream) throw Error("Unknown write stream");
+    if (stream.publishing) throw Error("Write stream is publishing");
+    let blob: File;
+    try {
+      await stream.writer.close();
+      blob = await stream.handle.getFile();
+      stream.publishing = true;
+    } catch (error) {
+      await stream.writer.abort().catch(() => {});
+      await this.discardStream(id);
+      throw error;
+    }
+    // Keep the OPFS lease while publishing, but release the project I/O lock:
+    // source reads/autosave and cancellation must not wait for a huge upload.
+    return async () => {
+      try {
+        await this.fs.binary(stream.target, blob, stream.controller.signal);
+      } finally {
+        await navigator.locks.request("purecut-project-io", () => this.discardStream(id));
+      }
+    };
   }
   async project(dir: string) {
     if (typeof dir !== "string" || !/^(\/|[a-z]:[/\\])/i.test(dir))
@@ -76,11 +123,15 @@ export class ProjectService {
     };
   }
   async call(channel: string, d: any = {}) {
-    return navigator.locks
-      .request("purecut-project-io", () => this.dispatch(channel, d ?? {}))
-      .catch((e) => {
-        throw Error(channel + ": " + e.message);
-      });
+    try {
+      if (channel === "file:write-close") {
+        const publish = await navigator.locks.request("purecut-project-io", () => this.preparePublication(d?.id));
+        return await publish();
+      }
+      return await navigator.locks.request("purecut-project-io", () => this.dispatch(channel, d ?? {}));
+    } catch (error) {
+      throw Error(channel + ": " + (error as Error).message);
+    }
   }
   async dispatch(channel: string, d: any): Promise<any> {
     if (channel === "window:is-fullscreen") return true;
@@ -128,36 +179,44 @@ export class ProjectService {
         if (!match) throw Error("Invalid media target");
         await this.project(match[1]);
         join(match[1], match[2] + "/" + match[3]);
-        const root = await navigator.storage.getDirectory(),
-          id = crypto.randomUUID();
-        const handle = await root.getFileHandle("cut-" + id, { create: true });
-        const writer = await handle.createWritable();
-        this.streams.set(id, { target: d.path, handle, writer });
-        return { id };
+        const root = await this.stagingRoot(), id = crypto.randomUUID();
+        const release = await holdMediaStaging("cut-" + id);
+        try {
+          const handle = await root.getFileHandle("cut-" + id, { create: true });
+          const writer = await handle.createWritable();
+          this.streams.set(id, { target: d.path, handle, writer, release,
+            controller: new AbortController(), publishing: false });
+          return { id };
+        } catch (error) {
+          await root.removeEntry("cut-" + id).catch(() => {});
+          release();
+          throw error;
+        }
       }
       const s = this.streams.get(d.id);
+      // The editor can abort again after a write error already disposed of it.
+      if (!s && channel === "file:write-abort") return;
       if (!s) throw Error("Unknown write stream");
-      if (channel === "file:write-chunk") {
-        const data = new Uint8Array(d.data);
-        if (
-          !Number.isSafeInteger(d.position) ||
-          d.position < 0 ||
-          d.position + data.length > 128 * 1024 * 1024
-        )
-          throw Error("Media write exceeds 128 MB limit");
-        await s.writer.write({ type: "write", position: d.position, data });
-        return;
+      if (s.publishing) {
+        if (channel === "file:write-abort") { s.controller.abort(); return; }
+        throw Error("Write stream is publishing");
       }
+      let keepOpen = false;
       try {
-        if (channel === "file:write-close") {
-          await s.writer.close();
-          await this.fs.binary(s.target, await s.handle.getFile());
-        } else await s.writer.abort();
+        if (channel === "file:write-chunk") {
+          const data = new Uint8Array(d.data);
+          if (!Number.isSafeInteger(d.position) || d.position < 0 ||
+              !Number.isSafeInteger(d.position + data.length))
+            throw Error("Invalid media write position");
+          await s.writer.write({ type: "write", position: d.position, data });
+          keepOpen = true;
+        } else if (channel === "file:write-abort") await s.writer.abort();
+        else throw Error("Unknown write operation");
+      } catch (error) {
+        await s.writer.abort().catch(() => {});
+        throw error;
       } finally {
-        this.streams.delete(d.id);
-        await (
-          await navigator.storage.getDirectory()
-        ).removeEntry("cut-" + d.id);
+        if (!keepOpen) await this.discardStream(d.id);
       }
       return;
     }
