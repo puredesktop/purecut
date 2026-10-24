@@ -15,13 +15,23 @@ import {
 import {
   Computed,
   FrameRate,
+  Name,
   setPlayhead,
   waveformAsset,
 } from '@diffusionstudio/runtime'
+import type { Entity } from 'koota'
 import { toast } from 'somoto'
 import { useEngineContext } from '@/engine'
 import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/icon'
+import {
+  TextField,
+  TextFieldDescription,
+  TextFieldInput,
+  TextFieldLabel,
+} from '@/components/ui/text-field'
+import { zoomToEntities } from '@/engine/camera'
+import { getDocumentEditor } from '@/engine/editor'
 import { flushPendingProjectEdits } from '@/projects/edits'
 import {
   speechAvailability,
@@ -35,18 +45,23 @@ import {
   applySpeechCuts,
   addSpeechCaptions,
   previewCuts,
+  sceneNames,
   type SpeechScene,
 } from './editor'
 import { loadTranscript, saveTranscript, speechSourcePath } from './store'
 import {
+  cleanSceneName,
   cutContent,
   cutContexts,
   fillerSuggestions,
   formatSeconds,
   formatTimestamp,
+  highlightExcerpt,
+  highlightSceneName,
   pauseCuts,
   pauseRule,
   removedSeconds,
+  SCENE_NAME_LIMIT,
   selectedPassages,
   searchTranscript,
   subtract,
@@ -83,6 +98,32 @@ const reviewKind = (proposal: SpeechReview) =>
         ? 'fillers'
         : 'cuts'
 
+/** What the name field says under itself: the name the scene will really get. */
+function HighlightNameNote(props: { proposal: SpeechReview }) {
+  const source = () =>
+    props.proposal.snapshot.scene.get(Name)?.value || 'the original scene'
+  const typed = () => cleanSceneName(props.proposal.highlightName)
+  const final = () =>
+    highlightSceneName(
+      props.proposal.highlightName,
+      props.proposal.highlightDefault,
+      sceneNames(props.proposal.snapshot.world),
+    )
+  return (
+    <Show
+      when={typed()}
+      fallback={<>With no name, it will be called <strong>{final()}</strong>.</>}
+    >
+      <Show
+        when={final() === typed()}
+        fallback={<>Another scene is already called <strong>{typed()}</strong>, so this one will be <strong>{final()}</strong>.</>}
+      >
+        A new scene beside <strong>{source()}</strong>, which stays as it is.
+      </Show>
+    </Show>
+  )
+}
+
 export function SpeechPanel() {
   const engine = useEngineContext()
   const [snapshot, setSnapshot] = createSignal<SpeechScene | null>(null)
@@ -112,7 +153,8 @@ export function SpeechPanel() {
   let controller: AbortController | undefined,
     stopPreview: (() => void) | undefined,
     generation = 0,
-    anchor: string | undefined
+    anchor: string | undefined,
+    focusName = false
   const words = createMemo(() =>
     snapshot() && transcript()
       ? timelineWords(transcript()!, clips(snapshot()!))
@@ -273,7 +315,7 @@ export function SpeechPanel() {
   const propose = (
     cuts: Range[],
     title: string,
-    detail: Pick<SpeechReview, 'highlightName' | 'reasons' | 'pause'> = {},
+    detail: Pick<SpeechReview, 'highlightName' | 'highlightDefault' | 'reasons' | 'pause'> = {},
   ) => {
     const state = snapshot()
     if (!state) throw Error('Load a speech scene first.')
@@ -348,14 +390,56 @@ export function SpeechPanel() {
     setSpeechReview({ ...proposal, cuts: proposal.cuts.filter((_, i) => i !== index) })
   }
   const makeHighlight = () => {
-    const selectedRanges = selectedPassages(words(), new Set(selected()))
+    const chosen = new Set(selected())
+    const selectedRanges = selectedPassages(words(), chosen)
     if (!selectedRanges.length) throw Error('Select words for the highlight.')
-    propose(
-      subtract({ start: 0, end: snapshot()!.end }, selectedRanges),
-      'Create a highlight',
-      { highlightName: 'Highlight' },
-    )
+    const name = highlightExcerpt(words().filter(w => chosen.has(w.key)))
+    // Only a highlight the person asked for here takes the focus.
+    focusName = true
+    try {
+      propose(
+        subtract({ start: 0, end: snapshot()!.end }, selectedRanges),
+        'Create a highlight',
+        { highlightName: name, highlightDefault: name },
+      )
+    } finally {
+      queueMicrotask(() => { focusName = false })
+    }
   }
+  /**
+   * A new highlight sits beside its source on the canvas. Select it and frame
+   * both, so the person sees where it went; the source stays active and
+   * unchanged until they choose to open the highlight.
+   */
+  const showHighlight = (source: SpeechScene, created: { scene: Entity; name: string }) => {
+    const editor = getDocumentEditor(source.world)
+    editor.select(created.scene)
+    requestAnimationFrame(() => requestAnimationFrame(() =>
+      zoomToEntities(source.world, [source.scene, created.scene].filter(e => e.isAlive()))))
+    toast('Highlight created', {
+      description: `${created.name} is selected beside ${
+        source.scene.get(Name)?.value || 'the original scene'
+      }, which is unchanged. Undo removes it.`,
+      action: {
+        label: 'Open',
+        onClick: () => {
+          if (!created.scene.isAlive()) return
+          editor.activate(created.scene)
+          editor.select(created.scene)
+        },
+      },
+    })
+  }
+  const applyReview = () =>
+    void run(async () => {
+      const proposal = speechReview()
+      if (!proposal) return
+      stopPreview?.()
+      const created = await applySpeechReview(proposal)
+      setSpeechReview(null)
+      if (created) showHighlight(proposal.snapshot, created)
+      await refresh()
+    })
   const transcribe = async () => {
     const state = snapshot()
     if (!state) return
@@ -681,7 +765,7 @@ export function SpeechPanel() {
             <div class="cut-selection-toolbar" aria-label="Transcript selection">
               <span class="cut-selection-summary text-xs" classList={{ 'text-muted-foreground': !selectionSummary() }}>{selectionSummary() || 'Click to seek · Drag to select'}</span>
               <Button disabled={!selected().length || !!speechReview()} onClick={cutSelection}>Cut selection</Button>
-              <Button variant="ghost" disabled={!selected().length || !!snapshot()?.keptLayers.length} title={snapshot()?.keptLayers.length ? "Highlights need a scene with only the recording and captions" : undefined} onClick={() => void run(async () => makeHighlight())}>Create highlight</Button>
+              <Button variant="ghost" disabled={!selected().length || !!speechReview() || !!snapshot()?.keptLayers.length} title={snapshot()?.keptLayers.length ? "Highlights need a scene with only the recording and captions" : undefined} onClick={() => void run(async () => makeHighlight())}>Create highlight</Button>
             </div>
             <details class="text-xs mt-2">
               <summary>Speaker names</summary>
@@ -766,10 +850,43 @@ export function SpeechPanel() {
                     {kind() === 'pauses'
                       ? pauseRule(proposal().pause!.minimum, proposal().pause!.retain).text
                       : kind() === 'highlight'
-                        ? 'The kept passages become a new scene. The original scene is not changed.'
+                        ? 'Each section below is left out of the new scene.'
                         : 'Read each cut in context. Keep any that change the meaning.'}{' '}
                     Nothing changes until you apply.
                   </p>
+                  <Show when={proposal().highlightName !== undefined}>
+                    <TextField
+                      class="cut-highlight-name"
+                      value={proposal().highlightName}
+                      onChange={value => {
+                        const current = speechReview()
+                        if (current) setSpeechReview({ ...current, highlightName: value })
+                      }}
+                    >
+                      <TextFieldLabel uiSize="compact">Scene name</TextFieldLabel>
+                      <TextFieldInput
+                        uiSize="compact"
+                        maxLength={SCENE_NAME_LIMIT}
+                        placeholder={proposal().highlightDefault}
+                        ref={(input: HTMLInputElement) => {
+                          if (!focusName) return
+                          focusName = false
+                          queueMicrotask(() => {
+                            input.focus()
+                            input.select()
+                          })
+                        }}
+                        onKeyDown={(event: KeyboardEvent) => {
+                          if (event.key !== 'Enter' || event.isComposing) return
+                          event.preventDefault()
+                          applyReview()
+                        }}
+                      />
+                      <TextFieldDescription>
+                        <HighlightNameNote proposal={proposal()} />
+                      </TextFieldDescription>
+                    </TextField>
+                  </Show>
                   <Show when={boundaryError()}>
                     <p role="alert" class="cut-review-error">{boundaryError()}</p>
                   </Show>
@@ -894,21 +1011,9 @@ export function SpeechPanel() {
                   </Button>
                   <Button
                     disabled={busy() || (!proposal().captions && kind() !== 'highlight' && !count())}
-                    onClick={() =>
-                      void run(async () => {
-                        stopPreview?.()
-                        await applySpeechReview(proposal())
-                        if (proposal().highlightName !== undefined)
-                          toast('Highlight scene created', {
-                            description:
-                              'Select the new scene on the canvas to edit or export it.',
-                          })
-                        setSpeechReview(null)
-                        await refresh()
-                      })
-                    }
+                    onClick={applyReview}
                   >
-                    Apply edit
+                    {kind() === 'highlight' ? 'Create scene' : 'Apply edit'}
                   </Button>
                 </div>
               </div>

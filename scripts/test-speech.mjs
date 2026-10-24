@@ -276,3 +276,66 @@ console.log('PASS speech review: listed ranges, context words, totals and pause 
   )
 }
 console.log('PASS speech review: silence only where the waveform found it; partial words and untranscribed gaps say so')
+
+// A word is removed only when the cut holds all of it. Cutting most of a word
+// still leaves a fragment you can hear, so it is partial, with a warning.
+{
+  const at = (text, start, end, i) => ({ text, start, end, index: i, key: `p:${i}`, speaker: 'A' })
+  const spoken = [at('wooord', 1, 2, 0), at('next', 2.1, 2.4, 1), at('last', 3, 3.5, 2)]
+  const [middle] = m.cutContexts([{ start: 1.2, end: 1.8 }], spoken)
+  assert.deepEqual(middle.removed, [], 'cutting 60% of a word does not remove it')
+  assert.deepEqual(middle.trimmed.map(w => w.text), ['wooord'])
+  assert.equal(m.cutContent(middle), 'partial')
+  // Keeps only the word's opening: the rest of it and the next word go.
+  const [tail] = m.cutContexts([{ start: 1.1, end: 2.5 }], spoken)
+  assert.deepEqual(tail.removed.map(w => w.text), ['next'])
+  assert.deepEqual(tail.trimmed.map(w => w.text), ['wooord'], 'a kept edge is still flagged')
+  assert.equal(m.cutContent(tail), 'words')
+  // Keeps only the word's ending.
+  const [head] = m.cutContexts([{ start: 0.5, end: 1.9 }], spoken)
+  assert.deepEqual(head.removed, [])
+  assert.equal(m.cutContent(head), 'partial')
+  // Exact word bounds, and frame alignment widening a cut outwards, remove it whole.
+  assert.deepEqual(m.cutContexts([{ start: 1, end: 2 }], spoken)[0].removed.map(w => w.text), ['wooord'])
+  const [snapped] = m.cutContexts(m.frameRanges([{ start: 3, end: 3.5 }], 30, 6), spoken)
+  assert.deepEqual(snapped.removed.map(w => w.text), ['last'])
+  assert.deepEqual(snapped.trimmed, [])
+}
+console.log('PASS speech review: only words wholly inside a cut count as removed; every other overlap is partial')
+
+// Highlight names: offered from the passage, cleaned, never a duplicate.
+assert.equal(
+  m.highlightExcerpt([{ text: 'um,' }, { text: 'we' }, { text: 'shipped' }, { text: '"it"' }, { text: 'on' }, { text: 'time.' }, { text: 'Then' }]),
+  '“We shipped it on time”',
+  'excerpt drops fillers and quotes and stops at the first sentence',
+)
+assert.equal(
+  m.highlightExcerpt('so this is a very long passage that keeps going and going without any end'.split(' ').map(text => ({ text }))),
+  '“So this is a very long passage that…”',
+  'a long excerpt stops at a word and says it goes on',
+)
+assert.equal(m.highlightExcerpt([{ text: '[laughter]' }, { text: 'uh' }, { text: '—' }]), 'Highlight', 'nothing usable falls back')
+assert.equal(m.highlightExcerpt([{ text: 'Yes' }]), '“Yes”')
+assert.equal(m.cleanSceneName('  Lesson\u0000 3\n\tintro​ '), 'Lesson 3 intro', 'control and invisible characters go')
+assert.equal(m.cleanSceneName('   '), '')
+assert.equal(m.cleanSceneName(42), '')
+assert.equal(Array.from(m.cleanSceneName('x'.repeat(300))).length, m.SCENE_NAME_LIMIT)
+assert.equal(m.uniqueSceneName('Interview', ['interview', 'Interview 2']), 'Interview 3', 'duplicates get the next free number, ignoring case')
+assert.equal(m.uniqueSceneName('Lesson intro', ['Interview']), 'Lesson intro')
+assert.equal(m.highlightSceneName('', '“We shipped it”', ['Interview']), '“We shipped it”', 'an empty name uses the offered excerpt')
+assert.equal(m.highlightSceneName(' ', ' ', []), 'Highlight', 'with nothing at all it is Highlight')
+assert.equal(m.highlightSceneName('Interview', '“x”', ['Interview']), 'Interview 2', 'a source name is never reused')
+assert.equal(
+  Array.from(m.uniqueSceneName('y'.repeat(m.SCENE_NAME_LIMIT), ['y'.repeat(m.SCENE_NAME_LIMIT)])).length,
+  m.SCENE_NAME_LIMIT,
+  'a numbered name still fits the limit',
+)
+assert.deepEqual(
+  m.wordsInRanges(
+    [{ text: 'a', start: 0, end: 1 }, { text: 'b', start: 2, end: 3 }, { text: 'c', start: 2.9, end: 4 }],
+    [{ start: 1.5, end: 3.2 }],
+  ).map(w => w.text),
+  ['b'],
+  'a word belongs to the range holding its middle',
+)
+console.log('PASS highlight names: excerpt, cleaning, empty and duplicate names')

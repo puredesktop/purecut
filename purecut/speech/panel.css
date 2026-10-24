@@ -66,3 +66,6 @@
 .cut-review-bounds { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
 .cut-review-footer { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
 .cut-selection-summary { font-variant-numeric:tabular-nums; }
+.cut-highlight-name { width:100%; gap:4px; }
+.cut-highlight-name [data-slot="text-field-input"] { width:100%; }
+.cut-highlight-name strong { font-weight:600; color:var(--foreground); overflow-wrap:anywhere; }

@@ -7,7 +7,10 @@ export type SpeechReview = {
   /** Frame-aligned and merged (see reviewedCuts): the review shows exactly these. */
   cuts: Range[]
   title: string
+  /** Set for a highlight: the name being given, as typed (may be empty). */
   highlightName?: string
+  /** The excerpt name a highlight was offered; used when the name is left empty. */
+  highlightDefault?: string
   captions?: Transcript
   /** Why a word was suggested, by timeline word key (filler cleanup). */
   reasons?: Record<string, string>
@@ -38,8 +41,19 @@ export function reviewedCuts(snapshot: SpeechScene, cuts: Range[]) {
   )
 }
 
-/** The drawer and UI use the same reviewed mutation and editor history. */
+/**
+ * The drawer and UI use the same reviewed mutation and editor history.
+ * A highlight answers with the scene it created and the name it was given.
+ */
 export async function applySpeechReview(proposal: SpeechReview) {
-  if (proposal.captions) await addSpeechCaptions(proposal.snapshot, proposal.captions)
-  else await applySpeechCuts(proposal.snapshot, proposal.cuts, proposal.highlightName)
+  if (proposal.captions) {
+    await addSpeechCaptions(proposal.snapshot, proposal.captions)
+    return undefined
+  }
+  return applySpeechCuts(
+    proposal.snapshot,
+    proposal.cuts,
+    proposal.highlightName,
+    proposal.highlightDefault,
+  )
 }

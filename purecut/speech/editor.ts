@@ -14,6 +14,8 @@ import {
   getLibrary,
   getParentEntity,
   isScene,
+  Name,
+  Scene,
   setPlayhead,
   resolveTranscript,
   stopPlayback,
@@ -31,6 +33,7 @@ import {
   rippleTime,
   captions,
   trimCaptionCues,
+  highlightSceneName,
   type Clip,
   type Range,
   type Transcript,
@@ -39,6 +42,12 @@ import type { Entity } from 'koota'
 import type { AudioAsset, VideoAsset } from '@diffusionstudio/assets'
 
 export type SpeechScene = ReturnType<typeof speechScene>
+const finite = (v: unknown, fallback: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? v : fallback
+/** The names of the scenes in the project, for keeping a new one distinct. */
+export function sceneNames(world: SpeechScene['world']): string[] {
+  return world.query(Scene).map(scene => scene.get(Name)?.value ?? '').filter(Boolean)
+}
 const numeric = (v: unknown, fallback: number) => {
   if (v === undefined || v === false) return fallback
   if (typeof v !== 'number' || !Number.isFinite(v))
@@ -262,11 +271,17 @@ async function trimCaptionTrees(snapshot: SpeechScene, trees: AuthoredTree[]) {
     tree.props.src = await captionAsset(snapshot, cues, start, end)
   }
 }
+/**
+ * Cuts the recording in place, or, given a highlight name (even an empty one),
+ * keeps only the uncut parts in a new scene beside the original and answers
+ * with that scene and the name it got. The original scene is left as it is.
+ */
 export async function applySpeechCuts(
   snapshot: SpeechScene,
   cuts: Range[],
   highlightName?: string,
-) {
+  highlightDefault?: string,
+): Promise<{ scene: Entity; name: string } | undefined> {
   await flushPendingProjectEdits()
   assertCurrent(snapshot)
   const removed = frameRanges(
@@ -290,18 +305,25 @@ export async function applySpeechCuts(
   const editor = getDocumentEditor(snapshot.world),
     history = getEditHistory(snapshot.world)
   stopPlayback(snapshot.world, snapshot.scene)
+  let created: Entity | undefined, name = ''
   history.beginGesture()
   try {
     if (highlightName !== undefined) {
       const parent = getParentEntity(snapshot.scene)
       if (!parent) throw Error('Scene has no stage.')
+      const scenes = getEntityChildren(snapshot.world, parent).filter(isScene)
       const tree = cleanTree(snapshot.tree)
-      tree.props.name = highlightName.trim().slice(0, 100) || 'Highlight'
-      tree.props.x =
-        numeric(tree.props.x, 0) + numeric(tree.props.width, 1280) + 80
+      name = highlightSceneName(highlightName, highlightDefault, sceneNames(snapshot.world))
+      tree.props.name = name
+      // Beside the scenes already on the stage, never on top of an earlier
+      // highlight: each one stays findable on the canvas.
+      tree.props.x = Math.max(...scenes.map(scene => {
+        const props = authoredTree(snapshot.world, scene)?.props ?? {}
+        return finite(props.x, 0) + finite(props.width, 1280)
+      })) + 80
       tree.children = trees
-      const [next] = editor.insertElement(parent, () => renderAuthored(tree))
-      if (!next) throw Error('Could not create the highlight.')
+      ;[created] = editor.insertElement(parent, () => renderAuthored(tree))
+      if (!created) throw Error('Could not create the highlight.')
       // Activation is deliberately outside edit history. Keep the original
       // active so undoing this insertion cannot leave the project with no scene.
     } else {
@@ -323,6 +345,7 @@ export async function applySpeechCuts(
     history.endGesture()
   }
   await flushPendingProjectEdits()
+  return created ? { scene: created, name } : undefined
 }
 export async function addSpeechCaptions(
   snapshot: SpeechScene,

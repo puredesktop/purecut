@@ -1,10 +1,13 @@
 import { waveformAsset } from '@diffusionstudio/runtime'
 import { request } from '../transport'
 import { flushPendingProjectEdits } from '@/projects/edits'
-import { speechScene, clips, assertCurrent } from './editor'
+import { speechScene, clips, assertCurrent, sceneNames } from './editor'
 import { loadTranscript } from './store'
 import {
+  cleanSceneName,
   fillerSuggestions,
+  highlightExcerpt,
+  highlightSceneName,
   listedCuts,
   pauseCuts,
   ranges,
@@ -12,6 +15,7 @@ import {
   subtract,
   timelineSilences,
   timelineWords,
+  wordsInRanges,
   type Range,
 } from './model'
 import { reviewSpeech, reviewedCuts, setSpeechOpen, type SpeechReview } from './review'
@@ -122,23 +126,31 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
     highlight ? subtract({ start: 0, end: snapshot.end }, requested) : requested,
   )
   const title = highlight ? 'Review highlight' : 'Review transcript cuts'
+  if (highlight && args.title !== undefined && typeof args.title !== 'string')
+    throw Error('title must be a string: the name for the new highlight scene.')
+  // The person sees this name in the review and can change it before applying.
+  const highlightDefault = highlight
+    ? highlightExcerpt(wordsInRanges(words, requested))
+    : undefined
+  const highlightName = highlight
+    ? cleanSceneName(args.title) || highlightDefault
+    : undefined
   reviewSpeech({
     snapshot,
     cuts,
     title,
-    ...(highlight
-      ? {
-          highlightName:
-            typeof args.title === 'string' ? args.title : 'Highlight',
-        }
-      : {}),
+    ...(highlight ? { highlightName, highlightDefault } : {}),
   })
   return {
     status: 'awaiting_review',
+    ...(highlight
+      ? { sceneName: highlightSceneName(highlightName, highlightDefault, sceneNames(snapshot.world)) }
+      : {}),
     ...listedCuts(cuts),
     remainingSeconds:
       snapshot.end - removedSeconds(cuts),
-    message:
-      'Nothing has been changed. The user previews and applies this proposal in the transcript panel.',
+    message: highlight
+      ? 'Nothing has been changed. The user can rename the highlight, preview it and apply it in the transcript panel. sceneName is the name it would get now; the user may change it. The original scene stays as it is.'
+      : 'Nothing has been changed. The user previews and applies this proposal in the transcript panel.',
   }
 }

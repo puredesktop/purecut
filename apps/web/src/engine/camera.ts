@@ -20,7 +20,7 @@ import {
 
 import { getDocumentEditor } from './editor';
 
-import type { World } from 'koota';
+import type { Entity, World } from 'koota';
 
 function reportCamera(world: World): void {
 	getDocumentEditor(world).reportEdit(world.get(Root)!, 'camera', getCameraMatrix(world));
@@ -41,6 +41,13 @@ export function zoomTo(world: World, scale: number): void {
 /** Frames everything on the stage. */
 export function zoomToFit(world: World): void {
 	focusContent(world);
+	reportCamera(world);
+}
+
+/** Frames the given entities, wherever on the stage they sit. */
+export function zoomToEntities(world: World, entities: Entity[]): void {
+	if (!entities.length) return;
+	focusEntities(world, entities);
 	reportCamera(world);
 }
 
