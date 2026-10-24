@@ -218,14 +218,21 @@ export class EditHistory {
 	/**
 	 * Records a library change as a step of its own, after whatever burst is
 	 * open. `undo` and `redo` run when Undo and Redo reach it; they may finish
-	 * later (the library reads files), and report their own failures.
+	 * later (the library reads files), and report their own failures. Returns
+	 * an Undo action that refuses to undo a newer edit, for a toast button.
 	 */
-	public recordLibraryStep(step: { undo: () => void; redo: () => void }): void {
+	public recordLibraryStep(step: { undo: () => void; redo: () => void }): () => boolean {
 		if (this.open) this.commit();
-		this.undos.push({ ops: [{ kind: 'library', ...step }], gesture: false, committedAt: performance.now() });
+		const transaction: Transaction = { ops: [{ kind: 'library', ...step }], gesture: false, committedAt: performance.now() };
+		this.undos.push(transaction);
 		if (this.undos.length > MAX_TRANSACTIONS) this.undos.shift();
 		this.redos = [];
 		this.changed();
+		return () => {
+			if ((this.open?.ops.length ?? 0) > 0 || this.undos[this.undos.length - 1] !== transaction) return false;
+			this.undo();
+			return true;
+		};
 	}
 
 	/** Takes back the last step, and hands it to redo. */

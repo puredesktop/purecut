@@ -3,6 +3,9 @@ import { createRuntimeWorld, AssetId, ChildOf, ItemIndex, Name, Scene, Stage } f
 import { describeImport, missingMediaMessage, scenesUsing } from '../apps/web/src/engine/import-outcomes';
 import { followSelection, replacementStep } from '../apps/web/src/engine/media-replacement';
 import { getEditHistory } from '../apps/web/src/engine/history';
+import { replaceAssetSource } from '../apps/web/src/engine/asset-actions';
+import { followRelink } from '../apps/web/src/engine/library';
+import { undoEdit, redoEdit } from '../apps/web/src/engine/input/shortcuts';
 import { AssetSelection } from '../apps/web/src/engine/traits';
 
 /**
@@ -94,7 +97,7 @@ export async function checkMediaImport() {
 
     const world = createRuntimeWorld('media-import-check');
     const relinked: string[] = [];
-    const replacing = new AssetLibrary(fs, { onRelink: (asset, from) => relinked.push(`${from}>${asset.id}`) });
+    const replacing = new AssetLibrary(fs, { onRelink: (asset, from) => { relinked.push(`${from}>${asset.id}`); followRelink(world, asset, from); } });
     try {
       await library.flush();
       await replacing.load();
@@ -135,6 +138,45 @@ export async function checkMediaImport() {
       try { await replacing.restore(next, previous); } catch (error) { stale = (error as Error).message; }
       check(/no longer be undone/.test(stale) && replacing.list().filter(asset => asset.path === 'blue.png').length === 1,
         'Undoing the same replacement twice must be refused, not bring back a second asset');
+
+      // Exercise the same action as the grid, without an inspector callback.
+      // Only the browser picker is substituted; import, history and bindings are real.
+      const pick = HTMLInputElement.prototype.click;
+      const replaceWith = async (colour: string) => {
+        const file = await picture(colour);
+        HTMLInputElement.prototype.click = function () {
+          const transfer = new DataTransfer(); transfer.items.add(file);
+          this.files = transfer.files;
+          this.dispatchEvent(new Event('change'));
+        };
+        try { return await replaceAssetSource(world, replacing, replacing.get('blue.png')!); }
+        finally { HTMLInputElement.prototype.click = pick; }
+      };
+      const until = async (test: () => boolean) => {
+        for (let i = 0; i < 100; i++) {
+          if (test()) return;
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        throw Error('Normal Undo/Redo did not restore the media and selection');
+      };
+      history.reset();
+      const bound = world.spawn(AssetId({ value: kept.id }));
+      const first = await replaceWith('orange');
+      check(first && bound.get(AssetId)?.value === first.id, 'Grid replacement must rebind clips');
+      const secondReplacement = await replaceWith('pink');
+      check(secondReplacement, 'A second replacement must succeed');
+      // Restoring the second step creates a fresh instance of the first asset.
+      // Two quick Undo commands must still restore both steps, in order.
+      undoEdit(world); undoEdit(world);
+      await until(() => replacing.get('blue.png')?.source === kept.source);
+      check(bound.get(AssetId)?.value === kept.id && world.get(AssetSelection)?.id === kept.id,
+        'Normal Undo must restore clip bindings and inspector selection');
+      redoEdit(world); redoEdit(world);
+      await until(() => replacing.get('blue.png')?.source === secondReplacement!.source);
+      check(bound.get(AssetId)?.value === secondReplacement!.id && world.get(AssetSelection)?.id === secondReplacement!.id,
+        'Normal Redo must restore clip bindings and inspector selection');
+      undoEdit(world); undoEdit(world);
+      await until(() => replacing.get('blue.png')?.source === kept.source);
 
       // Reload: what was kept stays, and a missing file names its scenes.
       await replacing.flush();

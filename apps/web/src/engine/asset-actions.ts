@@ -104,13 +104,16 @@ export async function replaceAssetSource(world: World, library: AssetLibrary, as
       : await library.relink(asset, path, file.name);
     forgetReplacedMedia(previous.id);
     followSelection(world, relinked, previous.id);
-    getEditHistory(world).recordLibraryStep(replacementStep(library, previous, relinked, {
+    const undo = getEditHistory(world).recordLibraryStep(replacementStep(library, previous, relinked, {
       forget: forgetReplacedMedia,
       changed: (next, from) => followSelection(world, next, from),
       failed: error => toast.error("Could not change the media back", { description: error.message }),
     }));
     toast(`Replaced ${assetName(asset)}`, {
       description: `Every clip using it now plays ${file.name}. Undo puts the old file back.`,
+      action: { label: "Undo", onClick: () => {
+        if (!undo()) toast("Undo newer edits first", { description: "Use the project's Undo command to return to this replacement." });
+      } },
     });
     return relinked;
   } catch (error) {

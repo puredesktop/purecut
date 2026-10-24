@@ -32,20 +32,31 @@ export interface ReplacementHooks {
   failed?: (error: Error) => void;
 }
 
+// Different steps can replace the same asset. File reads must finish in
+// history order, including a burst of Undo commands across those steps.
+const queues = new WeakMap<AssetLibrary, Promise<void>>();
+
 /**
  * The step for a replacement that turned `before` (a copy of the asset taken
  * before it) into `replaced`. Undo and redo run in the order they are asked
- * for, each after the last has finished, whatever the files take to read.
+ * for, each after the last library step has finished, whatever the files take to read.
  */
 export function replacementStep(library: AssetLibrary, before: Asset, replaced: Asset, hooks: ReplacementHooks = {}): ReplacementStep {
   const after = { ...replaced };
   let current = replaced;
   let queue: Promise<void> = Promise.resolve();
   const turnTo = (target: Asset): Promise<void> => {
-    queue = queue.then(async () => {
+    queue = (queues.get(library) ?? Promise.resolve()).then(async () => {
       const from = current.id;
       try {
-        const next = await library.restore(current, target);
+        // A later step's Undo (or a library reload) revives a fresh object
+        // for these same bytes. Resolve that instance, while still refusing
+        // a replacement made outside this history.
+        const live = library.get(current.id);
+        if (!live || live.source !== current.source || live.path !== current.path) {
+          throw new Error('This media was changed again, so this replacement can no longer be undone.');
+        }
+        const next = await library.restore(live, target);
         hooks.forget?.(from);
         current = next;
         hooks.changed?.(next, from);
@@ -53,6 +64,7 @@ export function replacementStep(library: AssetLibrary, before: Asset, replaced: 
         hooks.failed?.(error instanceof Error ? error : new Error(String(error)));
       }
     });
+    queues.set(library, queue);
     return queue;
   };
   return { undo: () => turnTo(before), redo: () => turnTo(after), current: () => current, settled: () => queue };
