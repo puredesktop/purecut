@@ -130,6 +130,7 @@ export function validateTranscript(
 }
 const normalized = (s: string) =>
   s.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
+const isFiller = (s: string) => /^(um+|uh+|erm+|er|hmm+)$/.test(normalized(s))
 export function fillerSuggestions(words: TimelineWord[], repetitions = false) {
   const restarts = new Set<number>()
   if (repetitions) {
@@ -160,7 +161,7 @@ export function fillerSuggestions(words: TimelineWord[], repetitions = false) {
       }
   }
   return words.flatMap((w, i) => {
-    const filler = /^(um+|uh+|erm+|er|hmm+)$/.test(normalized(w.text))
+    const filler = isFiller(w.text)
     return filler || restarts.has(i)
       ? [{ ...w, reason: filler ? 'Filler' : 'Possible repetition or restart' }]
       : []
@@ -180,6 +181,91 @@ export function selectedPassages(
     previous = index
   })
   return result
+}
+/** Words whose middle falls inside one of the ranges: what a highlight keeps. */
+export function wordsInRanges<T extends Range>(words: T[], kept: Range[]): T[] {
+  return words.filter(w => {
+    const middle = (w.start + w.end) / 2
+    return kept.some(r => middle >= r.start && middle <= r.end)
+  })
+}
+export const SCENE_NAME_LIMIT = 80
+export const HIGHLIGHT_FALLBACK = 'Highlight'
+const shorten = (text: string, limit: number) => {
+  const chars = Array.from(text)
+  if (chars.length <= limit) return text
+  const cut = chars.slice(0, limit - 1).join(''), space = cut.lastIndexOf(' ')
+  return (space > limit / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.–—-]+$/u, '') + '…'
+}
+/**
+ * A scene name is one line of plain text: control and invisible characters
+ * become spaces, runs of space collapse, and it is at most `limit` characters.
+ * Anything that is not a string, or holds only space, is no name ('').
+ */
+export function cleanSceneName(raw: unknown, limit = SCENE_NAME_LIMIT): string {
+  if (typeof raw !== 'string') return ''
+  const text = raw
+    .normalize('NFC')
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  return shorten(text, limit)
+}
+/**
+ * The name a highlight is offered: the first words of what is said in it,
+ * quoted, so the scene reads as a moment of the recording and not as a copy
+ * of its source. Fillers, bracketed notes ([laughter]) and stray punctuation
+ * are left out; it stops at the end of the first sentence or after about
+ * `limit` characters. With no usable words it is "Highlight".
+ */
+export function highlightExcerpt(words: { text: string }[], limit = 40): string {
+  const tokens = words
+    .map(w => w.text.replace(/\[[^\]]*\]|\([^)]*\)/gu, ' ').trim())
+    .filter(text => text && !isFiller(text))
+    .map(text => ({
+      text: text.replace(/[^\p{L}\p{N}'’-]/gu, '').replace(/^[-'’]+|[-'’]+$/gu, ''),
+      ends: /[.!?]["'’”)]*$/u.test(text),
+    }))
+    .filter(token => token.text)
+  if (!tokens.length) return HIGHLIGHT_FALLBACK
+  let excerpt = '', complete = false
+  for (const [index, token] of tokens.entries()) {
+    const next = excerpt ? `${excerpt} ${token.text}` : token.text
+    if (excerpt && Array.from(next).length > limit) break
+    excerpt = next
+    if (index === tokens.length - 1 || (token.ends && index >= 2)) {
+      complete = true
+      break
+    }
+  }
+  excerpt = shorten(excerpt, limit)
+  if (!complete && !excerpt.endsWith('…')) excerpt += '…'
+  return `“${excerpt.charAt(0).toLocaleUpperCase()}${excerpt.slice(1)}”`
+}
+/** `name`, or `name 2`, `name 3`… when another scene is already called that (any case). */
+export function uniqueSceneName(name: string, taken: Iterable<string>): string {
+  const used = new Set(Array.from(taken, n => n.trim().toLocaleLowerCase()))
+  if (!used.has(name.toLocaleLowerCase())) return name
+  for (let n = 2; ; n++) {
+    const suffix = ` ${n}`
+    const candidate = shorten(name, SCENE_NAME_LIMIT - suffix.length) + suffix
+    if (!used.has(candidate.toLocaleLowerCase())) return candidate
+  }
+}
+/**
+ * The name a new highlight scene gets: what the person typed (or the agent
+ * sent), else the offered excerpt, else "Highlight"; never the name of a
+ * scene that already exists.
+ */
+export function highlightSceneName(
+  requested: unknown,
+  fallback: unknown,
+  taken: Iterable<string>,
+): string {
+  return uniqueSceneName(
+    cleanSceneName(requested) || cleanSceneName(fallback) || HIGHLIGHT_FALLBACK,
+    taken,
+  )
 }
 export function frameRanges(
   input: Range[],

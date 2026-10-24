@@ -454,14 +454,18 @@ try {
     title: 'Speech highlight',
     ranges: [{ start: keep[0].start, end: keep.at(-1).end }],
   })
-  await button('Apply edit').click()
+  assert.equal(
+    await frame.getByLabel('Scene name', { exact: true }).inputValue(),
+    'Speech highlight',
+    'the agent title is offered as the scene name',
+  )
+  await button('Create scene').click()
   await frame
     .getByRole('group', { name: 'Review speech edit', exact: true })
     .waitFor({ state: 'hidden' })
-  assert.equal(
-    ((await tool('getCutContext')).source.match(/<scene\b/g) || []).length,
-    2,
-  )
+  const highlighted = (await tool('getCutContext')).source
+  assert.equal((highlighted.match(/<scene\b/g) || []).length, 2)
+  assert.match(highlighted, /name="Speech highlight"/, 'the highlight scene takes the reviewed name')
   await frame.getByLabel('Undo', { exact: true }).click()
   await button('Refresh').click()
   const saved = await tool('getCutContext')

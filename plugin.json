@@ -293,7 +293,7 @@
         },
         {
           "name": "proposeCutSpeechEdit",
-          "description": "Propose removal of spoken passages or create a separate highlight scene from selected passages. Read getCutTranscript first. Ranges are edited timeline seconds, not original media seconds. Deletions close gaps across speech and captions. Highlight preserves the original scene. User reviews before anything changes. Keep context and natural pauses between words; do not invent quotations. Replies with cutCount and the first 50 cuts (cutsNotListed says how many more); the review holds them all.",
+          "description": "Propose removal of spoken passages or create a separate highlight scene from selected passages. Read getCutTranscript first. Ranges are edited timeline seconds, not original media seconds. Deletions close gaps across speech and captions. Highlight preserves the original scene and adds a new named scene beside it (title names it; the reply gives sceneName). User reviews before anything changes. Keep context and natural pauses between words; do not invent quotations. Replies with cutCount and the first 50 cuts (cutsNotListed says how many more); the review holds them all.",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -308,7 +308,9 @@
                 ]
               },
               "title": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200,
+                "description": "Highlight only: a short name for the new scene, about what is said in it (e.g. \"Why we moved to Lisbon\"), not \"Highlight\". Leave it out to offer the first words of the passage. The person can change it in the review; a name already used by another scene gets a number added. Ignored for delete."
               },
               "ranges": {
                 "type": "array",
