@@ -72,7 +72,13 @@ works through the normal `pure-app` protocol.
 - JSX is executable trusted code. Import restrictions and path validation do
   not sandbox scripts or prevent symlink traversal in user-managed packages.
 - Electron testing here is macOS. Other OS/GPU/codec combinations, long mixed
-  timelines and installer distribution need release qualification.
+  timelines and installer distribution need release qualification: the focused
+  release matrix (`npm run release-matrix:report`, `release-matrix:run`) checks
+  Windows/Linux/Intel/Apple macOS, WebGPU variants, and the supported codecs;
+  it exports long mixed audio/video timelines with captions, transitions and
+  masks beyond the size boundary, then decodes and verifies duration, audible
+  tail, frame dimensions, caption timing and representative pixels, recording
+  peak memory and flagging stalled runs. It runs out-of-band from `npm test`.
 - The shell owns model invocation/approval; tool integration tests do not
   certify the quality of every model's editing decisions.
 
