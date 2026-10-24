@@ -49,10 +49,10 @@ export const files = {
       ...(Number.isFinite(lastModified) ? { lastModified } : {}),
     });
   },
-  async binary(path: string, blob: Blob) {
+  async binary(path: string, blob: Blob, signal?: AbortSignal) {
     // OPFS File snapshots remain disk-backed. This helper publishes them via
-    // fs.binaryTransfer in bounded 4 MB chunks, including on PureServer.
-    await writePlatformFileBlob(path, blob);
+    // fs.binaryTransfer in bounded 4 MB chunks on supporting hosts.
+    await writePlatformFileBlob(path, blob, { signal });
   },
 };
 export type ProjectFiles = typeof files;
