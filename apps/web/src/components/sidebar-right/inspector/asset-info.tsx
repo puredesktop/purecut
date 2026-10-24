@@ -111,11 +111,8 @@ function AssetDetails() {
     const lib = library();
     const asset = selection.asset();
     if (!lib || !asset) return;
-    // A relink mints a new id; keep the panel on the asset.
-    const next = await replaceAssetSource(lib, asset, restored => {
-      if (selection.asset()?.id === next?.id) selection.select(restored);
-    });
-    if (next) selection.select(next);
+    // A relink mints a new id; the selection follows it, and its undo.
+    await replaceAssetSource(world, lib, asset);
   };
 
   const handleInsert = () => {

@@ -115,7 +115,7 @@ export function LazyAssetItem(props: LazyAssetItemProps) {
 
   const handleReplaceMedia = async () => {
     const lib = library();
-    if (lib) await replaceAssetSource(lib, props.asset);
+    if (lib) await replaceAssetSource(world, lib, props.asset);
   };
 
   const handleSaveAs = () => saveAssetAs(props.asset);

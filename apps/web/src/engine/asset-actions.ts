@@ -10,6 +10,8 @@ import { resolveTranscript, serializeSubtitles, type SubtitleFormat } from "@dif
 import { assetName, importFiles as importFilesInto, pickFiles, saveAssetAs as saveAs } from "@diffusionstudio/assets";
 import { insertAsset } from "./insert-asset";
 import { describeImport } from "./import-outcomes";
+import { getEditHistory } from "./history";
+import { followSelection, replacementStep } from "./media-replacement";
 import { forgetAssetMedia } from "./timeline/media";
 import { forgetAssetPeaks } from "./timeline/peaks";
 
@@ -84,15 +86,14 @@ export async function pickAndImport(
 /**
  * Lets the user pick another file of the same kind for `asset` and points it
  * there; the JSX keeps naming it by path, so every clip using it plays the
- * new file. A file of another kind is refused with why. The toast saying it
- * was replaced carries an Undo that puts the old file back. Returns the
+ * new file. A file of another kind, or one the library already holds as
+ * another asset, is refused with why. The replacement is a step of the
+ * project's edit history, so Undo puts the old file back and Redo the new
+ * one, and the selection follows the asset through each. Returns the
  * relinked asset, or null when the picker was dismissed or the relink failed
- * (reported). `onRestored` hears of the asset an Undo brings back, whose id
- * is the old one again.
+ * (reported).
  */
-export async function replaceAssetSource(
-  library: AssetLibrary, asset: Asset, onRestored?: (asset: Asset) => void,
-): Promise<Asset | null> {
+export async function replaceAssetSource(world: World, library: AssetLibrary, asset: Asset): Promise<Asset | null> {
   const previous = { ...asset };
   try {
     const [file] = await pickFiles({ multiple: false });
@@ -101,13 +102,15 @@ export async function replaceAssetSource(
     const relinked = import.meta.env.VITE_PURECUT || !path
       ? await library.relinkFile(asset, file)
       : await library.relink(asset, path, file.name);
-    // The picture and the waveform the timeline is showing are of the file
-    // it used to be.
-    forgetAssetMedia(asset.id);
-    forgetAssetPeaks(asset.id);
+    forgetReplacedMedia(previous.id);
+    followSelection(world, relinked, previous.id);
+    getEditHistory(world).recordLibraryStep(replacementStep(library, previous, relinked, {
+      forget: forgetReplacedMedia,
+      changed: (next, from) => followSelection(world, next, from),
+      failed: error => toast.error("Could not change the media back", { description: error.message }),
+    }));
     toast(`Replaced ${assetName(asset)}`, {
-      description: `Every clip using it now plays ${file.name}.`,
-      action: { label: "Undo", onClick: () => void undoReplace(library, relinked, previous, onRestored) },
+      description: `Every clip using it now plays ${file.name}. Undo puts the old file back.`,
     });
     return relinked;
   } catch (error) {
@@ -116,16 +119,10 @@ export async function replaceAssetSource(
   }
 }
 
-async function undoReplace(
-  library: AssetLibrary, current: Asset, previous: Asset, onRestored?: (asset: Asset) => void,
-): Promise<void> {
-  try {
-    forgetAssetMedia(current.id);
-    forgetAssetPeaks(current.id);
-    onRestored?.(await library.restore(current, previous));
-  } catch (error) {
-    toast.error("Could not undo the replacement", { description: (error as Error).message });
-  }
+/** The picture and the waveform the timeline shows of an asset's old bytes. */
+function forgetReplacedMedia(id: string): void {
+  forgetAssetMedia(id);
+  forgetAssetPeaks(id);
 }
 
 /** Inserts `asset` at the playhead of the active scene; tells the user when there is nowhere to put it. */

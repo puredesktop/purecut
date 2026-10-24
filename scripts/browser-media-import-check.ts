@@ -1,6 +1,9 @@
 import { AssetLibrary, type ImportOutcome, type ProjectFS } from '@diffusionstudio/assets';
 import { createRuntimeWorld, AssetId, ChildOf, ItemIndex, Name, Scene, Stage } from '@diffusionstudio/runtime';
 import { describeImport, missingMediaMessage, scenesUsing } from '../apps/web/src/engine/import-outcomes';
+import { followSelection, replacementStep } from '../apps/web/src/engine/media-replacement';
+import { getEditHistory } from '../apps/web/src/engine/history';
+import { AssetSelection } from '../apps/web/src/engine/traits';
 
 /**
  * Importing several files at once says what became of every one of them, a
@@ -96,13 +99,38 @@ export async function checkMediaImport() {
       await library.flush();
       await replacing.load();
       const target = replacing.get(kept.id)!;
+
+      // Bytes another asset holds cannot stand in: one asset per content id, so it would drop that one.
+      const sun = replacing.get('sun.png')!;
+      let clash = '';
+      try { await replacing.relinkFile(target, files.get(sun.source)!); } catch (error) { clash = (error as Error).message; }
+      check(/already in the library as "sun\.png"/.test(clash) && replacing.get(sun.id) === sun && replacing.get(kept.id) === target && relinked.length === 0,
+        `Replacing with media already in the library must be refused, keeping both assets: ${clash}`);
+
+      // A replacement is a step of the project's history: Undo and Redo, the selection following.
       const previous = { ...target };
+      world.add(AssetSelection({ id: kept.id }));
       const next = await replacing.relinkFile(target, await picture('purple'));
-      check(next.id !== kept.id && next.path === 'blue.png', 'A replacement keeps the library path');
-      const restored = await replacing.restore(next, previous);
-      check(restored.id === kept.id && restored.source === kept.source && !restored.sourceError, 'Undo must point the asset back at its own bytes');
+      followSelection(world, next, kept.id);
+      check(next.id !== kept.id && next.path === 'blue.png' && world.get(AssetSelection)?.id === next.id, 'A replacement keeps the library path and the selection');
+      const step = replacementStep(replacing, previous, next, { changed: (asset, from) => followSelection(world, asset, from) });
+      const history = getEditHistory(world);
+      history.recordLibraryStep(step);
+      check(history.canUndo(), 'A replacement must be a step Undo can reach');
+      history.undo();
+      await step.settled();
+      const restored = replacing.get(kept.id)!;
+      check(restored?.source === kept.source && !restored.sourceError && world.get(AssetSelection)?.id === kept.id,
+        'Undo must point the asset back at its own bytes and keep it selected');
       check(relinked.join() === `${kept.id}>${next.id},${next.id}>${kept.id}`, `Undo must rebind clips to the restored id: ${relinked.join()}`);
-      check(!files.has(next.source), 'Undo must remove the bytes staged for the replacement');
+      check(files.has(next.source) && history.canRedo(), 'Undo must keep the replacement\'s bytes for Redo');
+      history.redo();
+      await step.settled();
+      check(step.current().id === next.id && step.current().source === next.source && world.get(AssetSelection)?.id === next.id,
+        'Redo must point the asset at the replacement again');
+      history.undo();
+      await step.settled();
+      check(replacing.get(kept.id)?.source === kept.source && world.get(AssetSelection)?.id === kept.id, 'Undo again must restore the old file');
       let stale = '';
       try { await replacing.restore(next, previous); } catch (error) { stale = (error as Error).message; }
       check(/no longer be undone/.test(stale) && replacing.list().filter(asset => asset.path === 'blue.png').length === 1,
@@ -115,6 +143,7 @@ export async function checkMediaImport() {
         await reopened.load();
         check(reopened.get(kept.id)?.source === kept.source, 'An undone replacement must stay undone after reload');
         check(reopened.list().length === 5, `Reload must hold exactly the accepted imports: ${reopened.list().map(asset => asset.path)}`);
+        check(reopened.get('blue.png') && reopened.get('sun.png'), 'Every library path the JSX names must still resolve after reload');
         files.delete('/in/a/picture.png');
         await reopened.load();
         const lost = reopened.bySource('/in/a/picture.png')!;

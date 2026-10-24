@@ -41,6 +41,9 @@ import type {
 /** How long changes pile up before the manifest is written. */
 const SAVE_DEBOUNCE = 200;
 
+/** Where `relinkFile` copies a replacement; a dot folder, so the scan of `assets/` passes it over. */
+const REPLACED_DIR = `${ASSETS_DIR}/.replaced`;
+
 export interface LibraryOptions {
 	/**
 	 * Called when an asset's library path changes (renamed or moved), so the
@@ -692,7 +695,9 @@ export class AssetLibrary {
 	 * untouched), new source, new content id. Whatever is bound to the old id
 	 * is the host's to move over (`onRelink`). Bytes of another kind are
 	 * refused: what plays the asset (a video paint, an audio clip) needs the
-	 * same kind of media in its place.
+	 * same kind of media in its place, and so are bytes another library
+	 * asset already holds: the library keeps one asset per content id, so
+	 * taking them would drop that asset and strand whatever names it.
 	 */
 	public async relink(asset: Asset, source: string, name = basename(source)): Promise<Asset> {
 		const next = await this.describeSource(source, {
@@ -704,6 +709,10 @@ export class AssetLibrary {
 		});
 		if (next.type !== asset.type) {
 			throw new Error(`"${name}" is ${describeAssetType(next.type)}; "${assetName(asset)}" is ${describeAssetType(asset.type)}, so it needs ${describeAssetType(asset.type)} in its place.`);
+		}
+		const holder = this.holderOf(next.id, asset);
+		if (holder) {
+			throw new Error(`"${name}" is already in the library as "${holder.path}", so it cannot also replace "${assetName(asset)}". Use "${holder.path}" in those clips instead, or pick another file.`);
 		}
 		const from = asset.id;
 		if (next.id === from) {
@@ -721,10 +730,21 @@ export class AssetLibrary {
 		return next;
 	}
 
-	/** Relinks a browser-picked file without requiring access to its native path. */
+	/** The library asset other than `except` holding content id `id`, if one does. */
+	private holderOf(id: string, except: Asset): Asset | undefined {
+		const entry = this.map.get(id);
+		return entry && entry !== except && !isPartialAsset(entry) && !entry.transient ? entry : undefined;
+	}
+
+	/**
+	 * Relinks a browser-picked file without requiring access to its native
+	 * path: its bytes are copied under `assets/.replaced/`, which the load's
+	 * scan passes over, so a copy kept for redo after an undo is not taken
+	 * into the library as an asset of its own.
+	 */
 	public async relinkFile(asset: Asset, file: File): Promise<Asset> {
 		const name = basename(normalizePath(file.name)).replace(/[^a-zA-Z0-9._-]/g, '-');
-		const source = joinPath(ASSETS_DIR, `replacement-${crypto.randomUUID()}-${name || 'media'}`);
+		const source = joinPath(REPLACED_DIR, `${crypto.randomUUID()}-${name || 'media'}`);
 		try {
 			await this.fs.write(source, file);
 			return await this.relink(asset, source, file.name);
@@ -736,22 +756,29 @@ export class AssetLibrary {
 	}
 
 	/**
-	 * Undoes a relink: `current` (what the relink returned) is pointed back
-	 * at the bytes `previous` (a copy of the asset taken before it) had, and
-	 * comes back missing if they are gone again. Bytes the relink copied
-	 * into `assets/` go. Whatever is bound to `current` follows (`onRelink`).
+	 * Undoes (or redoes) a relink: `current` (the asset as it is now) is
+	 * pointed at the bytes `target` (a copy of the asset taken before or
+	 * after the relink) had, and comes back missing if they are gone. Copies
+	 * a relink staged are kept, for the redo. Whatever is bound to `current`
+	 * follows (`onRelink`). Refused, changing nothing, when `current` is no
+	 * longer the library's, or when another asset now holds those bytes.
 	 */
-	public async restore(current: Asset, previous: Asset): Promise<Asset> {
+	public async restore(current: Asset, target: Asset): Promise<Asset> {
 		if (this.map.get(current.id) !== current) {
 			throw new Error(`"${assetName(current)}" was changed again since, so this replacement can no longer be undone.`);
 		}
-		const record = toRecord(previous) as AssetRecord;
+		const record = toRecord(target) as AssetRecord;
 		const back: Asset = await this.revive(record).catch((error: unknown) => (
 			{ ...this.attach(record), sourceError: error instanceof Error ? error.message : String(error) }
 		));
+		if (this.map.get(current.id) !== current) {
+			throw new Error(`"${assetName(current)}" was changed again since, so this replacement can no longer be undone.`);
+		}
+		const holder = this.holderOf(back.id, current);
+		if (holder) {
+			throw new Error(`The file "${assetName(current)}" would go back to is now in the library as "${holder.path}", so the replacement cannot be undone.`);
+		}
 		const from = current.id;
-		const staged = current.source !== back.source && current.source.startsWith(`${ASSETS_DIR}/replacement-`)
-			? current.source : undefined;
 		let restored: Asset;
 		if (back.id === from) {
 			for (const key of Object.keys(current) as (keyof Asset)[]) if (!(key in back)) delete current[key];
@@ -764,7 +791,6 @@ export class AssetLibrary {
 			restored = back;
 		}
 		this.changed();
-		if (staged && !this.bySource(staged)) await this.fs.remove(staged).catch(() => { });
 		this.onRelink?.(restored, from);
 		return restored;
 	}
