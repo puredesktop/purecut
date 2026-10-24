@@ -83,7 +83,7 @@ export function Timeline() {
     const files = droppedFiles(event);
 
     const assets = ids.map((id) => lib.get(id)).filter((asset) => asset != null);
-    if (files.length) assets.push(...await importFiles(lib, files, ''));
+    if (files.length) assets.push(...(await importFiles(lib, files, '')).assets);
     if (!assets.length) return;
 
     if (!getActiveEntity(world)) {

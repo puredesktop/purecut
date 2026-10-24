@@ -44,31 +44,32 @@ export async function speechFixture(host: HTMLElement) {
   const text = new Map<string, string>(),
     binary = new Map<string, File>()
   let manifest: any = null
-  let configured = false,
+  let service: Record<string, unknown> = { available: false },
+    appSettings: Record<string, unknown> = {},
+    jobs: any[] | null = null,
     started = 0,
     cancelled = 0
   const originalCall = bridge.call
   bridge.call = async (method: string, args: any[] = []) => {
-    if (method === 'settings.app.get') return {} as any
-    if (method === 'diarization.status')
-      return {
-        providers: [
-          {
-            id: 'assemblyai',
-            label: 'AssemblyAI',
-            input: 'audio',
-            kind: 'cloud',
-            available: configured,
-          },
-        ],
-        selected: 'assemblyai',
-      } as any
+    if (method === 'settings.app.get') return appSettings as any
+    if (method === 'diarization.status') {
+      const provider = {
+        id: 'assemblyai',
+        label: 'AssemblyAI',
+        input: 'audio',
+        kind: 'cloud',
+        ...service,
+      }
+      return { providers: [provider], selected: provider.id, today: 0 } as any
+    }
     if (method === 'diarization.start') {
       if (!args[0].consent.cloudUpload || !args[0].disfluencies)
         throw Error('Missing consent or filler retention')
       started++
       return { jobId: 'fixture' } as any
     }
+    if (method === 'diarization.job' && jobs)
+      return (jobs.length > 1 ? jobs.shift() : jobs[0]) as any
     if (method === 'diarization.job')
       return {
         state: 'done',
@@ -94,7 +95,10 @@ export async function speechFixture(host: HTMLElement) {
     return originalCall(method, args)
   }
   files.root = async () => '/speech-fixture'
+  let unreadable = false,
+    savedTranscript: string | undefined
   files.read = async p => {
+    if (unreadable && /\/speech-[^/]+\.json$/.test(p)) throw Error('Permission denied')
     if (!text.has(p)) throw Error('Missing file')
     return text.get(p)!
   }
@@ -219,7 +223,31 @@ export async function speechFixture(host: HTMLElement) {
       await flushPendingProjectEdits()
     },
     configure() {
-      configured = true
+      service = { available: true }
+    },
+    /** The provider the host reports, e.g. `{ available: false, reason: 'missing-key' }`. */
+    setService(next: Record<string, unknown>) {
+      service = next
+    },
+    setSettings(next: Record<string, unknown>) {
+      appSettings = next
+    },
+    /** Job states to report in turn (the last repeats); null completes at once. */
+    setJobs(next: any[] | null) {
+      jobs = next
+    },
+    /** Damage the saved transcript ('malformed'), block reading it ('unreadable') or put it back (null). */
+    breakTranscript(kind: 'malformed' | 'unreadable' | null) {
+      const path = [...text.keys()].find(p => /\/speech-[^/]+\.json$/.test(p))
+      if (!path) throw Error('No saved transcript')
+      savedTranscript ??= text.get(path)
+      unreadable = kind === 'unreadable'
+      text.set(path, kind === 'malformed' ? '{"version":1,"words":[{' : savedTranscript!)
+    },
+    async removeRecording() {
+      const state = speechScene({ keepOtherLayers: true })
+      editor.remove(state.units.map(u => u.entity))
+      await flushPendingProjectEdits()
     },
     /** The cuts the open review would hand to applySpeechReview. */
     reviewCuts() {

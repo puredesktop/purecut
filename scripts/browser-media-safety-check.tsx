@@ -5,6 +5,8 @@ import { render } from 'solid-js/web';
 import { PromptInputProvider } from '../apps/web/src/context/prompt-input';
 import { Assets } from '../apps/web/src/components/sidebar-left/assets';
 import { AssetInfoPreview } from '../apps/web/src/components/sidebar-right/inspector/asset-info-preview';
+import { AssetInfoPanel } from '../apps/web/src/components/sidebar-right/inspector/asset-info';
+import { undoEdit, redoEdit } from '../apps/web/src/engine/input/shortcuts';
 import { AssetSelection } from '../apps/web/src/engine/traits';
 
 export async function checkMediaSafety() {
@@ -42,6 +44,32 @@ export async function checkMediaSafety() {
     let revoked = false;
     try { await fetch(oldUrl); } catch { revoked = true; }
     if (!revoked) throw Error('Relinking must release the stale preview URL');
+    dispose();
+    world.set(AssetSelection, { id: asset.id });
+    dispose = render(() => <WorldProvider world={world}><AssetInfoPanel /></WorldProvider>, host);
+    const pick = HTMLInputElement.prototype.click;
+    try {
+      canvas.getContext('2d')!.fillRect(0, 0, 16, 16);
+      const replacement = await new Promise<Blob>(resolve => canvas.toBlob(value => resolve(value!), 'image/png'));
+      HTMLInputElement.prototype.click = function () {
+        const transfer = new DataTransfer(); transfer.items.add(new File([replacement], 'replacement.png', { type: 'image/png' }));
+        this.files = transfer.files; this.dispatchEvent(new Event('change'));
+      };
+      const replaceButton = [...host.querySelectorAll('button')].find(button => button.textContent === 'Replace source');
+      if (!replaceButton) throw Error('Inspector must offer Replace source');
+      replaceButton.click();
+      await until(() => library.get('safe.png')?.id !== asset.id);
+      const replacementId = library.get('safe.png')!.id;
+      await until(() => world.get(AssetSelection)?.id === replacementId && !!host.querySelector('img')?.src);
+      undoEdit(world);
+      await until(() => world.get(AssetSelection)?.id === asset.id && !!host.querySelector('img')?.src);
+      if (host.textContent?.includes('Untitled') || !host.textContent?.includes(asset.source))
+        throw Error('Inspector must still show the selected original asset after Undo');
+      redoEdit(world);
+      await until(() => world.get(AssetSelection)?.id === replacementId && !!host.querySelector('img')?.src);
+      undoEdit(world);
+      await until(() => world.get(AssetSelection)?.id === asset.id);
+    } finally { HTMLInputElement.prototype.click = pick; }
     dispose();
     dispose = render(() => <WorldProvider world={world}><PromptInputProvider><Assets /></PromptInputProvider></WorldProvider>, host);
     await until(() => !!host.querySelector('[data-asset-id]'));
