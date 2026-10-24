@@ -1,20 +1,25 @@
-import { AssetLibrary, type ProjectFS, type Manifest, type Transcript } from '@diffusionstudio/assets';
+import { AssetLibrary, type ProjectFS, type Transcript } from '@diffusionstudio/assets';
 import {
-  Caption, CaptionType, Computed, Library, bindAsset, createRuntimeWorld, getActiveEntity, setActive, store,
+  Caption, CaptionType, Computed, Library, Mode, RenderSurface, Source, Workarea, createRuntimeWorld, getActiveEntity, setActive, store,
 } from '../packages/runtime/src';
-import { authoredElement, createRuntimeDocument } from '../packages/reconciler/src';
+import { authoredElement, mount } from '../packages/reconciler/src';
 import {
   applyCaptionStyle, cueSceneFrame, editableCaptions, findLongCues, seekToCue, splitCue, splitPoint,
 } from '../apps/web/src/engine/caption-editing';
+import { captureFrameWithoutCaptions } from '../apps/web/src/engine/caption-frame';
 import { getDocumentEditor } from '../apps/web/src/engine/editor';
 import { getEditHistory } from '../apps/web/src/engine/history';
+import { forgetProjectBundle, rememberProjectBundle } from '../apps/web/src/lib/db';
 import {
   assessReadability, layoutCaption, paintCaptionSample, paintSampleBackdrop, previewText,
 } from '../apps/web/src/components/sidebar-right/inspector/caption-preview';
 import { CAPTION_PRESET_OPTIONS, captionPresetTextStyle } from '../apps/web/src/components/sidebar-right/inspector/caption-types';
 import { WorldProvider } from '@diffusionstudio/koota-solid';
 import { render } from 'solid-js/web';
+import { ProjectProvider } from '../apps/web/src/context/project';
 import { CaptionCues } from '../apps/web/src/components/sidebar-right/inspector/caption-cues';
+import { CaptionFootageCheck } from '../apps/web/src/components/sidebar-right/inspector/caption-footage-check';
+import type { ProjectInfo } from '../apps/web/src/projects';
 
 const words = (text: string, start: number, each: number) =>
   text.split(' ').map((word, i) => ({ text: word, start: start + i * each, end: start + (i + 1) * each - 0.02 }));
@@ -96,107 +101,184 @@ function checkReadability(): Record<string, string> {
 export async function checkCaptionFootage(): Promise<Record<string, string>> {
   checkRules();
   const drawn = checkReadability();
+  const check = (value: unknown, message: string) => { if (!value) throw Error(message); };
 
   const files = new Map<string, File>();
-  let manifest: Manifest | null = null;
   const fs: ProjectFS = {
-    readManifest: async () => manifest, writeManifest: async value => { manifest = structuredClone(value); }, list: async () => [],
+    readManifest: async () => null, writeManifest: async () => {}, list: async () => [],
     stat: async path => { const file = files.get(path); return file ? { size: file.size, mtime: file.lastModified } : null; },
     file: async path => { const file = files.get(path); if (!file) throw Error('Missing fixture'); return file; },
     write: async (path, blob) => { files.set(path, new File([blob], path.split('/').pop()!)); },
     remove: async path => { files.delete(path); },
   };
   const library = new AssetLibrary(fs);
-  const world = createRuntimeWorld('caption-footage');
+  const asset = await library.store(new Blob([JSON.stringify(fixture)], { type: 'application/json' }), { name: 'talk.json' });
+  const { compile } = await import('../purecut/compiler-runtime.js') as { compile(source: string): { ok: boolean; code?: string; error?: string } };
+  const compiled = compile(`export default () => (
+    <stage>
+      <scene active id="footage-scene" width={640} height={360} fill="#101820" workarea={[10, 20]}>
+        <rect id="early" width={640} height={360} end={10} fill="#101820" />
+        <rect id="late" width={640} height={360} start={10} end={20} fill="#ffffff" />
+        <captions id="captions-a" src="${asset.path}" preset="spotlight" colors={['#000000']}
+          fontSize={96} fontFamily="Inter" fontWeight="bold" fontStyle="italic" letterSpacing={2} end={20} />
+        <captions id="captions-b" src="${asset.path}" preset="spotlight" end={20} />
+        <captions id="captions-c" src="${asset.path}" preset="spotlight" locked end={20} />
+      </scene>
+    </stage>
+  );`);
+  check(compiled.ok, `The caption footage fixture compiles: ${compiled.error}`);
+
+  const projectId = 'caption-footage-fixture';
+  await rememberProjectBundle(projectId, compiled.code!);
+  const world = createRuntimeWorld(projectId);
   world.set(Library, library);
-  const document = createRuntimeDocument(world);
+  world.set(Mode, { value: 'realtime' });
+  const surface = globalThis.document.createElement('canvas');
+  world.set(RenderSurface, { canvas: surface, ctx: surface.getContext('2d'), resolution: 1 });
+  const mounted = mount(compiled.code!, world);
+  const byStamp = (stamp: string) => world.query(Source).find(entity => entity.get(Source)?.value === `index.tsx:${stamp}`)!;
+  const scene = byStamp('footage-scene');
+  const first = byStamp('captions-a');
+  const second = byStamp('captions-b');
+  const locked = byStamp('captions-c');
+  check(scene && first && second && locked, 'The caption footage fixture mounts');
+  setActive(world, scene);
   const host = globalThis.document.createElement('div');
   globalThis.document.body.append(host);
   let dispose = () => {};
   const until = async (condition: () => boolean) => {
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 500; i++) {
       if (condition()) return;
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise(resolve => setTimeout(resolve, 20));
     }
     throw Error(`Caption footage check timed out: ${host.textContent}`);
   };
   try {
-    const asset = await library.store(new Blob([JSON.stringify(fixture)], { type: 'application/json' }), { name: 'talk.json' });
-    const scene = document.createElement('Scene'); document.insertNode(document.stage, scene);
-    setActive(world, scene.entity);
-    const make = (source: string) => {
-      const clip = document.createElement('Captions');
-      document.setProperty(clip, '__source', source);
-      document.setProperty(clip, 'src', asset.path);
-      document.insertNode(scene, clip); bindAsset(clip.entity, asset);
-      return clip.entity;
-    };
-    const first = make('captions-a');
-    const second = make('captions-b');
-    const locked = make('captions-c');
-    const editor = getDocumentEditor(world);
-    editor.editProperty(locked, 'locked', true);
+    const computed = store(world, Computed);
+    computed.localTime[scene.id()] = 60;
+    computed.localTime[first.id()] = 60;
+
+    // The real capture path: at two seconds the footage is dark, although the
+    // ten-to-twenty-second work area would make the old relative capture white.
+    const frame = await captureFrameWithoutCaptions(world, scene);
+    const proof = globalThis.document.createElement('canvas');
+    proof.width = frame.width; proof.height = frame.height;
+    const proofContext = proof.getContext('2d')!;
+    proofContext.drawImage(frame, 0, 0);
+    frame.close();
+    const pixel = proofContext.getImageData(0, 0, 1, 1).data;
+    check(pixel[0]! < 40 && pixel[1]! < 40 && pixel[2]! < 40,
+      `Capture must use the absolute playhead before the work area, got ${[...pixel].join(',')}`);
+    check(scene.get(Workarea)?.start === 300, 'Capture must leave the editor work area intact');
+
     const history = getEditHistory(world);
     await Promise.resolve();
 
     // Apply to all: one step, preset and colors only, locked ones left alone.
     const { editable, skipped } = editableCaptions(world);
-    if (editable.length !== 2 || skipped !== 1) throw Error(`Editable captions: ${editable.length}, skipped ${skipped}`);
+    check(editable.length === 2 && skipped === 1, `Editable captions: ${editable.length}, skipped ${skipped}`);
     const applied = applyCaptionStyle(world, editable, { preset: 'guinea', colors: ['#112233', '#445566', '#778899'] });
-    if (applied !== 2) throw Error('Apply to all must reach both unlocked captions');
+    check(applied === 2, 'Apply to all must reach both unlocked captions');
     for (const entity of [first, second]) {
-      if (entity.get(Caption)?.type !== CaptionType.GUINEA) throw Error('Apply to all did not change the preset');
-      if (authoredElement(entity)?.props.src !== asset.path) throw Error('A style must not touch the transcript');
+      check(entity.get(Caption)?.type === CaptionType.GUINEA, 'Apply to all did not change the preset');
+      check(authoredElement(entity)?.props.src === asset.path, 'A style must not touch the transcript');
     }
-    if (locked.get(Caption)?.type !== CaptionType.CLASSIC) throw Error('A locked caption must keep its look');
+    check(locked.get(Caption)?.type === CaptionType.SPOTLIGHT, 'A locked caption must keep its look');
     await Promise.resolve();
     history.undo();
-    if (first.get(Caption)?.type !== CaptionType.CLASSIC || second.get(Caption)?.type !== CaptionType.CLASSIC)
-      throw Error('One undo must take the style off every caption it reached');
-    if (authoredElement(first)?.props.preset !== undefined && authoredElement(first)?.props.preset !== false)
-      throw Error('Undo must leave no preset in the file');
+    check(first.get(Caption)?.type === CaptionType.SPOTLIGHT && second.get(Caption)?.type === CaptionType.SPOTLIGHT,
+      'One undo must take the style off every caption it reached');
+    check(authoredElement(first)?.props.preset === 'spotlight', 'Undo must restore the authored preset');
     history.redo();
-    if (second.get(Caption)?.type !== CaptionType.GUINEA) throw Error('Redo must put the style back');
+    check(second.get(Caption)?.type === CaptionType.GUINEA, 'Redo must put the style back');
     history.undo();
 
-    // Apply to this caption: only the one, Classic spelled as no preset.
+    // Apply to this caption: only the one.
     applyCaptionStyle(world, [first], { preset: 'stark', colors: false });
-    if (first.get(Caption)?.type !== CaptionType.STARK || second.get(Caption)?.type !== CaptionType.CLASSIC)
-      throw Error('Apply to this caption must reach only that caption');
+    check(first.get(Caption)?.type === CaptionType.STARK && second.get(Caption)?.type === CaptionType.SPOTLIGHT,
+      'Apply to this caption must reach only that caption');
     await Promise.resolve();
     history.undo();
 
     // Seeking to a cue: the caption starts a second into the scene.
-    const computed = store(world, Computed);
     computed.origin[first.id()] = 30; computed.start[first.id()] = 30; computed.end[first.id()] = 600;
     computed.playbackRate[first.id()] = 1;
-    if (!seekToCue(world, first, fixture[1]!)) throw Error('A cue on the timeline must say so');
+    check(seekToCue(world, first, fixture[1]!), 'A cue on the timeline must say so');
     const playhead = computed.localTime[getActiveEntity(world)!.id()];
-    if (playhead !== 30 + Math.round(2.1 * 30)) throw Error(`Seek landed on frame ${playhead}`);
+    check(playhead === 30 + Math.round(2.1 * 30), `Seek landed on frame ${playhead}`);
 
-    // The inspector: the warnings, and a split as one undoable step.
+    // The cue editor: the warnings, and a split as one undoable step.
     dispose = render(() => <WorldProvider world={world}><CaptionCues entity={first} /></WorldProvider>, host);
     await until(() => host.querySelectorAll('textarea').length === 3);
-    if (!host.querySelector('[data-long-cues]')?.textContent?.includes('2 captions')) throw Error('The long-cue summary is missing');
+    check(host.querySelector('[data-long-cues]')?.textContent?.includes('2 captions'), 'The long-cue summary is missing');
     const warning = [...host.querySelectorAll('button')].find(b => b.title === 'Show this caption on the timeline');
-    if (!warning?.textContent?.includes('characters')) throw Error('The long cue warning must say why');
-    setActive(world, scene.entity);
-    computed.localTime[scene.entity.id()] = 0;
-    warning.click();
-    if (computed.localTime[scene.entity.id()] !== 93) throw Error('A warning must seek to its cue');
-    if (globalThis.document.activeElement !== host.querySelectorAll('textarea')[1]) throw Error('A warning must put the cursor in its cue');
+    check(warning?.textContent?.includes('characters'), 'The long cue warning must say why');
+    setActive(world, scene);
+    computed.localTime[scene.id()] = 0;
+    warning!.click();
+    check(computed.localTime[scene.id()] === 93, 'A warning must seek to its cue');
+    check(globalThis.document.activeElement === host.querySelectorAll('textarea')[1], 'A warning must put the cursor in its cue');
     const splitButton = [...host.querySelectorAll('button')].find(b => b.textContent === 'Split')!;
     splitButton.click();
     await until(() => host.querySelectorAll('textarea').length === 4);
     const revisedPath = authoredElement(first)?.props.src;
-    if (revisedPath === asset.path) throw Error('A split must bind a revised transcript');
+    check(revisedPath !== asset.path, 'A split must bind a revised transcript');
     const revised = JSON.parse(await (await (await library.resolve(String(revisedPath))).handle.getFile()).text()) as Transcript;
-    if (JSON.stringify(revised.flatMap(c => c.words)) !== JSON.stringify(fixture.flatMap(c => c.words)))
-      throw Error('A split must keep every word and its timing');
+    check(JSON.stringify(revised.flatMap(c => c.words)) === JSON.stringify(fixture.flatMap(c => c.words)),
+      'A split must keep every word and its timing');
     await Promise.resolve();
     history.undo();
-    if (authoredElement(first)?.props.src !== asset.path) throw Error('Undo must restore the unsplit captions');
+    check(authoredElement(first)?.props.src === asset.path, 'Undo must restore the unsplit captions');
     await until(() => host.querySelectorAll('textarea').length === 3);
-  } finally { dispose(); host.remove(); document.dispose(); world.destroy(); await library.dispose(); }
+    dispose();
+    dispose = () => {};
+
+    // The actual footage panel, including its real frame capture and Apply
+    // buttons. The authored Spotlight has white text but a black highlight.
+    computed.localTime[scene.id()] = 60;
+    computed.localTime[first.id()] = 60;
+    dispose = render(() => <ProjectProvider project={{ id: projectId, dir: '', displayName: 'Caption footage' } as ProjectInfo}>
+      <WorldProvider world={world}>
+        <CaptionFootageCheck entity={first} current={CAPTION_PRESET_OPTIONS.find(o => o.name === 'spotlight')!} currentColors={[0x000000]} />
+      </WorldProvider>
+    </ProjectProvider>, host);
+    await until(() => host.textContent?.includes('Frame at 0:02') === true);
+    check(host.textContent?.includes('Highlight hard to read'), 'The panel must judge the black highlight on dark footage');
+    const preview = host.querySelector<HTMLCanvasElement>('canvas[aria-label="Spotlight on this frame"]')!;
+    const previewPixel = preview.getContext('2d')!.getImageData(0, 0, 1, 1).data;
+    check(previewPixel[0]! < 40 && previewPixel[1]! < 40 && previewPixel[2]! < 40,
+      'The panel preview must show the captured playhead frame');
+
+    const whisper = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')]
+      .find(button => button.textContent?.includes('Whisper'))!;
+    whisper.click();
+    const applyThis = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Apply to this caption')!;
+    applyThis.click();
+    await Promise.resolve();
+    check(first.get(Caption)?.type === CaptionType.WHISPER && second.get(Caption)?.type === CaptionType.SPOTLIGHT,
+      'Apply to this caption in the panel must change only the selected caption');
+    check(authoredElement(first)?.props.fontSize === 96 && authoredElement(first)?.props.fontStyle === 'italic',
+      'Applying a preview must preserve the authored style shown in that preview');
+
+    const applyAll = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Apply to all captions')!;
+    applyAll.click();
+    await Promise.resolve();
+    check(first.get(Caption)?.type === CaptionType.WHISPER && second.get(Caption)?.type === CaptionType.WHISPER,
+      'Apply to all captions in the panel must change every unlocked caption');
+    check(locked.get(Caption)?.type === CaptionType.SPOTLIGHT, 'Apply to all in the panel must leave locked captions alone');
+
+    computed.localTime[scene.id()] = 30;
+    computed.localTime[first.id()] = 30;
+    const refresh = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Use playhead frame')!;
+    refresh.click();
+    await until(() => host.textContent?.includes('Frame at 0:01') === true);
+  } finally {
+    dispose();
+    host.remove();
+    mounted.dispose();
+    world.destroy();
+    await forgetProjectBundle(projectId);
+    await library.dispose();
+  }
   return drawn;
 }

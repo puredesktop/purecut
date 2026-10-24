@@ -5,7 +5,7 @@
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { useTrait, useWorld } from "@diffusionstudio/koota-solid";
 import {
-  AssetId, Caption, Color, Computed, FrameRate, TextStyle, colorToHex, getActiveEntity, getAsset, getWebFonts, loadWebFont,
+  AssetId, Caption, Color, Computed, FontStyle, FrameRate, TextStyle, colorToHex, getActiveEntity, getAsset, getWebFonts, loadWebFont,
   resolveTranscript, store,
 } from "@diffusionstudio/runtime";
 import { authoredElement } from "@diffusionstudio/reconciler";
@@ -136,15 +136,18 @@ export function CaptionFootageCheck(props: Props) {
   // Every font the previews draw in, loaded before anything is measured in it.
   const fontKey = createMemo(() => [...new Set(CAPTION_PRESET_OPTIONS.map(option => {
     const { style } = styleFor(option);
-    return `${style.fontWeight}|${style.fontFamily}`;
+    return `${style.fontStyle}|${style.fontWeight}|${style.fontFamily}`;
   }))].join("\n"));
   const [fontsReady] = createResource(fontKey, async key => {
-    const fonts = key.split("\n").map(entry => entry.split("|") as [string, string]);
+    const fonts = key.split("\n").map(entry => entry.split("|") as [string, string, string]);
     const web = new Set(getWebFonts().map(font => font.family));
-    await Promise.all([...new Set(fonts.map(([, family]) => family))].filter(family => web.has(family)).map(family =>
-      loadWebFont(world, family as Parameters<typeof loadWebFont>[1]).catch(() => undefined)));
+    await Promise.all(fonts.filter(([, , family]) => web.has(family)).map(([style, weight, family]) =>
+      loadWebFont(world, family as Parameters<typeof loadWebFont>[1], Number(style) as FontStyle, weight).catch(() => undefined)));
     if (typeof document !== "undefined" && document.fonts) {
-      await Promise.all(fonts.map(([weight, family]) => document.fonts.load(`${weight} 48px "${family}"`).catch(() => [])));
+      await Promise.all(fonts.map(([style, weight, family]) => {
+        const cssStyle = Number(style) === FontStyle.ITALIC ? "italic" : Number(style) === FontStyle.OBLIQUE ? "oblique" : "normal";
+        return document.fonts.load(`${cssStyle} ${weight} 48px "${family}"`).catch(() => []);
+      }));
     }
     return true;
   });

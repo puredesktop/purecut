@@ -55,7 +55,7 @@ export function previewText(look: CaptionPreviewLook, cue: Cue, seconds: number)
   // Cascade's decoder shows only the words that have started; the first is
   // on screen from the moment the group is.
   const shown = look.reveal ? group.filter((w, i) => i === 0 || w.start <= seconds) : group;
-  const word = look.accent === "word" && group.length > 1 ? Math.max(0, spoken) : -1;
+  const word = look.accent === "word" && group.length > 1 && spoken >= 0 ? spoken : -1;
   return {
     lines: [shown.map(w => w.text).join(" ")],
     activeLine: 0,
@@ -153,7 +153,7 @@ export function assessCaptionPaints(
     // Stark's difference blend is not a highlight preset; a highlight is drawn plainly.
     const result = assessReadability(pixels, color, { shadow: look.shadow });
     if (WORST.indexOf(result.verdict) > WORST.indexOf(worst.verdict)
-      || (result.verdict === worst.verdict && result.lost > worst.lost && worst.weakest === "highlight")) {
+      || (result.verdict === worst.verdict && result.lost > worst.lost)) {
       worst = { ...result, weakest: "highlight" };
     }
   }
@@ -208,13 +208,13 @@ export function layoutCaption(
     const active = line === text.activeLine;
     const weight = look.accent === "line-weight" && active ? "500" : style.fontWeight;
     const size = look.accent === "line-color" && active ? Math.round(style.fontSize * 1.1) : style.fontSize;
-    const italic = style.fontStyle === FontStyle.NORMAL ? "" : "italic ";
-    return `${italic}${weight} ${size}px "${style.fontFamily}", sans-serif`;
+    const fontStyle = style.fontStyle === FontStyle.NORMAL ? "" : `${FontStyle[style.fontStyle].toLowerCase()} `;
+    return `${fontStyle}${weight} ${size}px "${style.fontFamily}", sans-serif`;
   };
   // Letter spacing widens every character, the space between words included.
   const spacing = style.letterSpacing ?? 0;
   const width = (value: string, line: number) => measure(value, font(line)) + spacing * value.length;
-  const lineHeight = style.fontSize * Math.max(1, style.leading) * 1.1;
+  const lineHeight = style.fontSize * style.leading * 1.1;
 
   // Wrapped to the box: a line too wide for it continues on the next.
   // Each wrapped line remembers the line it came from and where in that
@@ -235,11 +235,11 @@ export function layoutCaption(
   });
 
   const height = wrapped.length * lineHeight;
-  const top = style.textBaseline === TextBaseline.TOP
-    ? boxY
+  const top = style.textBaseline === TextBaseline.MIDDLE
+    ? boxY + (look.box.height - height) / 2
     : style.textBaseline === TextBaseline.BOTTOM
       ? boxY + look.box.height - height
-      : boxY + (look.box.height - height) / 2;
+      : boxY;
   const lines = wrapped.map((line, i) => {
     const lineWidth = width(line.text, line.source);
     const x = style.textAlign === TextAlign.LEFT

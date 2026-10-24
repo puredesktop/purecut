@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { CAPTION_PRESETS, captionTextStyle } from "@diffusionstudio/reconciler";
-import { CAPTION_PRESET_STYLES, CaptionAlign } from "@diffusionstudio/runtime";
+import { CAPTION_PRESET_STYLES, CaptionAlign, FontStyle, TextAlign, TextBaseline, TextCase } from "@diffusionstudio/runtime";
 
 import type { CaptionPreset as CaptionPresetName } from "@diffusionstudio/jsx";
 import type { CaptionPresetStyle, CaptionType, GroupByOptions } from "@diffusionstudio/runtime";
@@ -114,21 +114,27 @@ export function captionPresetTextStyle(option: CaptionPresetOption): CaptionPres
  * preset: the preset's base coat with the caption's own font, size, case,
  * spacing, alignment and fill over it, by the document's own rules
  * (`captionTextStyle`). Applying a preset keeps those props, so this is what
- * the caption will look like. A field the document would leave unset falls
- * back to the preset's value here; `fill` is white where the caption draws
- * with no base fill of its own (Stark's difference blend).
+ * the caption will look like. A field the document would leave unset uses
+ * the renderer's default; `fill` is white where the caption draws with no
+ * base fill of its own (Stark's difference blend).
  */
 export function captionStyleFor(
   option: CaptionPresetOption,
   props: Record<string, unknown>,
 ): { style: CaptionPresetStyle; fill: number } {
-  const base = captionPresetTextStyle(option);
-  const resolved = captionTextStyle(CAPTION_PRESETS[option.name]!, props);
-  const style = { ...base };
-  for (const [key, value] of Object.entries(resolved.style)) {
-    if (value !== undefined) Object.assign(style, { [key]: value });
-  }
-  return { style, fill: resolved.fill ?? 0xffffff };
+  const { style: resolved, fill } = captionTextStyle(CAPTION_PRESETS[option.name]!, props);
+  const style: CaptionPresetStyle = {
+    fontSize: resolved.fontSize ?? 16,
+    fontFamily: resolved.fontFamily || "Inter",
+    fontWeight: resolved.fontWeight ?? "400",
+    fontStyle: resolved.fontStyle ?? FontStyle.NORMAL,
+    textAlign: resolved.textAlign ?? TextAlign.LEFT,
+    textBaseline: resolved.textBaseline ?? TextBaseline.TOP,
+    textCase: resolved.textCase ?? TextCase.ORIGINAL,
+    leading: resolved.leading ?? 1,
+    letterSpacing: resolved.letterSpacing,
+  };
+  return { style, fill: fill ?? 0xffffff };
 }
 
 /** The preset a caption with no `preset` of its own plays. */

@@ -22,8 +22,8 @@ vi.mock('./capture', () => ({ createCapture: vi.fn() }));
 vi.mock('@diffusionstudio/encoder', () => ({ createImageEncoder: vi.fn(), decodePng: vi.fn() }));
 import { AssetLibrary, type Manifest, type ProjectFS, type Transcript } from '@diffusionstudio/assets';
 import {
-  Caption, CaptionType, Color, Computed, Hidden, Library, TextCase, TextStyle, Workarea, bindAsset, createRuntimeWorld,
-  getActiveEntity, setActive, store,
+  Caption, CaptionType, Color, Computed, FontStyle, Hidden, Library, TextAlign, TextBaseline, TextCase, TextStyle, Workarea,
+  bindAsset, createRuntimeWorld, getActiveEntity, setActive, store,
 } from '@diffusionstudio/runtime';
 import { authoredElement, createRuntimeDocument } from '@diffusionstudio/reconciler';
 import {
@@ -91,6 +91,7 @@ describe('long caption cues', () => {
 describe('caption previews', () => {
   it('shows what each preset puts on screen', () => {
     expect(previewText(option('spotlight').look, fixture[0]!, 0.5).activeWord).toEqual({ line: 0, index: 1 });
+    expect(previewText(option('spotlight').look, fixture[0]!, 0.39).activeWord).toBeNull();
     expect(previewText(option('paper').look, fixture[2]!, 8.1).lines).toHaveLength(2);
     expect(previewText(option('classic').look, fixture[1]!, 2.5).lines[0]!.split(' ').length).toBeLessThanOrEqual(2);
   });
@@ -199,6 +200,31 @@ describe('previews follow the caption the document will draw', () => {
     const plain = layoutCaption(whisper.look, captionStyleFor(whisper, {}).style, text, scene, measure);
     const large = layoutCaption(whisper.look, captionStyleFor(whisper, { fontSize: 120 }).style, text, scene, measure);
     expect(large.coverage).toBeGreaterThan(plain.coverage * 2);
+  });
+
+  it('uses renderer defaults when an authored override is invalid', () => {
+    const { style } = captionStyleFor(option('whisper'), {
+      fontSize: 0, fontFamily: ' ', fontWeight: 'heavy', fontStyle: 'sideways', textAlign: 'justify',
+      textBaseline: 'hanging', textCase: 'title', leading: 0, letterSpacing: 'wide',
+    });
+    expect(style).toEqual({
+      fontSize: 16, fontFamily: 'Inter', fontWeight: '400', fontStyle: FontStyle.NORMAL,
+      textAlign: TextAlign.LEFT, textBaseline: TextBaseline.TOP, textCase: TextCase.ORIGINAL,
+      leading: 1, letterSpacing: undefined,
+    });
+  });
+
+  it('honours oblique, tight leading and alphabetic baseline in layout', () => {
+    const whisper = option('whisper');
+    const style = captionStyleFor(whisper, { fontStyle: 'oblique', leading: 0.5, textBaseline: 'alphabetic' }).style;
+    const text = { lines: ['one', 'two'], activeLine: 0, activeWord: null };
+    const measure = (value: string) => value.length * 20;
+    const layout = layoutCaption(whisper.look, style, text, { width: 1920, height: 1080 }, measure);
+    const topStyle = { ...style, textBaseline: TextBaseline.TOP };
+    const top = layoutCaption(whisper.look, topStyle, text, { width: 1920, height: 1080 }, measure);
+    expect(layout.font(0)).toMatch(/^oblique /);
+    expect(layout.lineHeight).toBeCloseTo(style.fontSize * 0.5 * 1.1);
+    expect(layout.lines[0]!.y).toBe(top.lines[0]!.y);
   });
 
   it('captures the playhead frame even before a work area that starts later', () => {
