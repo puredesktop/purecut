@@ -74,7 +74,7 @@ export async function renderScene(
     // finalize() waits for stream close, including the platform upload. Abort
     // the handle now rather than waiting for render() to return to its caller.
     if (target instanceof ElectronWritableFileHandle) {
-      aborting ??= target.dispose().catch(error => {
+      aborting = Promise.resolve(aborting).then(() => target.dispose()).catch(error => {
         console.warn("[export] Could not abort output", error);
       });
     }
@@ -123,7 +123,7 @@ export async function renderScene(
     });
 
     cancelActive = () => { encoder.cancel(); cancelTarget(); };
-    if (cancelled) { encoder.cancel(); return { type: 'canceled' }; }
+    if (cancelled) { encoder.cancel(); cancelTarget(); }
     const result = await encoder.render();
     // Publication can reject with AbortError (including while queued), or the
     // encoder can wrap it in its error result. Neither is an export failure.

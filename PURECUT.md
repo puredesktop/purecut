@@ -71,7 +71,8 @@ works through the normal `pure-app` protocol.
 - Startup and pre-write cleanup sweep abandoned `cut-<uuid>` OPFS files.
   Per-export Web Locks protect live exports in other tabs, including while
   publication is in progress. Cleanup failures leave files for a later sweep
-  and do not replace the original write error.
+  and do not replace the original write error. Unavailable OPFS or a failed
+  sweep does not prevent the editor from opening.
 - PureCloud requires matching PureServer `fs.binaryTransfer` support. This
   app change does not establish hosted availability. Hosted support remains
   pending coordinated server delivery and qualification.
