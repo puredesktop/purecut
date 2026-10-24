@@ -15,10 +15,10 @@ import { cx } from "@/lib/cva";
 import { applyCaptionStyle, editableCaptions } from "@/engine/caption-editing";
 import { captureFrameWithoutCaptions } from "@/engine/caption-frame";
 import { useProject } from "@/context/project";
-import { CAPTION_PRESET_OPTIONS, captionStyleFor } from "./caption-types";
+import { CaptionSampler } from "@/engine/caption-sample";
+import { CAPTION_PRESET_OPTIONS, captionStyleFor, captionTextPaint } from "./caption-types";
 import {
-  HEAVY_COVERAGE, SAMPLE_CUE, assessCaptionPaints, highlightColors, layoutCaption, paintCaptionSample, paintSampleBackdrop,
-  previewText,
+  HEAVY_COVERAGE, SAMPLE_CUE, assessCaptionPaints, cropPixels, highlightColors, paintSampleBackdrop,
 } from "./caption-preview";
 
 import type { Transcript } from "@diffusionstudio/assets";
@@ -110,14 +110,18 @@ export function CaptionFootageCheck(props: Props) {
     return asset ? resolveTranscript(asset).catch(() => []) : [];
   });
 
-  /** The cue playing when the frame was taken, or the next one, or a stand-in. */
+  /**
+   * What the previews show: the caption's own transcript at the moment the
+   * frame was taken, or at the next cue when none is playing then, or a
+   * stand-in cue for a caption with no words yet.
+   */
   const sample = createMemo(() => {
     const at = shot()?.at ?? 0;
-    const cues = transcript() ?? [];
-    const playing = cues.find(cue => cue.words.length && at >= cue.words[0]!.start && at <= cue.words.at(-1)!.end);
-    const next = cues.find(cue => cue.words.length && cue.words[0]!.start >= at);
-    const cue = playing ?? next ?? cues.find(c => c.words.length) ?? SAMPLE_CUE;
-    return { cue, seconds: playing ? at : cue.words[0]!.start };
+    const cues = (transcript() ?? []).filter(cue => cue.words.length);
+    if (!cues.length) return { transcript: [SAMPLE_CUE], seconds: SAMPLE_CUE.words[0]!.start + 0.01 };
+    const playing = cues.find(cue => at >= cue.words[0]!.start && at <= cue.words.at(-1)!.end);
+    const cue = playing ?? cues.find(c => c.words[0]!.start >= at) ?? cues[0]!;
+    return { transcript: cues, seconds: playing ? at : cue.words[0]!.start + 0.01 };
   });
 
   // The caption's own style props, which a preset change keeps: the TextStyle
@@ -151,20 +155,19 @@ export function CaptionFootageCheck(props: Props) {
     }
     return true;
   });
-  const placement = () => {
-    const authored = authoredElement(props.entity)?.props;
-    const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
-    return { x: number(authored?.x), y: number(authored?.y), align: props.entity.get(Caption)?.verticalAlign };
-  };
   const colorsFor = (option: CaptionPresetOption) =>
     option === props.current ? props.currentColors : option.slots.map(slot => slot.defaultColor);
 
+  // The previews are drawn by the runtime, in a world of their own (see CaptionSampler).
+  const sampler = new CaptionSampler();
+  onCleanup(() => sampler.dispose());
+
   /**
    * Draws one preview and reports how it reads. The backdrop is drawn and
-   * sampled under the text block before the text goes on, so what is
-   * measured is the picture the words have to stand out from.
+   * kept before the caption goes on, so what is measured under the words is
+   * the picture they have to stand out from.
    */
-  const paint = (canvas: HTMLCanvasElement, option: CaptionPresetOption, backdrop: Backdrop) => {
+  const paint = async (canvas: HTMLCanvasElement, option: CaptionPresetOption, backdrop: Backdrop): Promise<PreviewResult | null> => {
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
     const scene = sceneSize();
@@ -178,33 +181,26 @@ export function CaptionFootageCheck(props: Props) {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
     } else paintSampleBackdrop(ctx, backdrop, canvas.width, canvas.height);
+    const picture = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    const { style, fill } = styleFor(option);
     const colors = colorsFor(option);
-    const { cue, seconds } = sample();
-    const text = previewText(option.look, cue, seconds);
-    const measure = (value: string, font: string) => {
-      ctx.font = font;
-      return ctx.measureText(value).width;
-    };
-    const layout = layoutCaption(option.look, style, text, scene, measure, placement());
-    const { x, y, width, height } = layout.block;
-    let readability: CaptionReadability = { lost: 0, verdict: "clear", weakest: "text" };
-    if (width > 0 && height > 0) {
-      const px = Math.max(0, Math.floor(x * scale));
-      const py = Math.max(0, Math.floor(y * scale));
-      const pw = Math.min(canvas.width - px, Math.ceil(width * scale));
-      const ph = Math.min(canvas.height - py, Math.ceil(height * scale));
-      if (pw > 0 && ph > 0) {
-        readability = assessCaptionPaints(
-          ctx.getImageData(px, py, pw, ph).data,
-          { text: fill, highlights: highlightColors(option.look, colors) },
-          option.look,
-        );
-      }
-    }
-    paintCaptionSample(ctx, { look: option.look, style, layout, text, fill, colors, scale });
-    return { readability, coverage: layout.coverage };
+    const { transcript: words, seconds } = sample();
+    const { block } = await sampler.draw(ctx, {
+      scene, scale, props: authored(), preset: option.name, colors: colors.map(colorToHex), transcript: words, seconds,
+    });
+    if (!block) return { readability: { lost: 0, verdict: "clear", weakest: "text" }, coverage: 0 };
+
+    const px = Math.max(0, Math.floor(block.x * scale));
+    const py = Math.max(0, Math.floor(block.y * scale));
+    const pw = Math.min(canvas.width - px, Math.ceil(block.width * scale));
+    const ph = Math.min(canvas.height - py, Math.ceil(block.height * scale));
+    const textPaint = captionTextPaint(option, authored());
+    const readability = pw > 0 && ph > 0
+      ? assessCaptionPaints(cropPixels(picture, px, py, pw, ph),
+        { text: textPaint.text, highlights: highlightColors(option.look, colors) },
+        { shadow: option.look.shadow, difference: textPaint.difference })
+      : { lost: 0, verdict: "clear" as const, weakest: "text" as const };
+    return { readability, coverage: (block.width * block.height) / (scene.width * scene.height) };
   };
 
   const Preview = (previewProps: {
@@ -214,13 +210,19 @@ export function CaptionFootageCheck(props: Props) {
     onResult?: (result: PreviewResult) => void;
   }) => {
     let canvas!: HTMLCanvasElement;
+    // A newer draw supersedes one still waiting on its transcript.
+    let latest = 0;
     createEffect(() => {
       if (!fontsReady()) return;
       shot();
       sample();
       authored();
-      const result = paint(canvas, previewProps.option, previewProps.backdrop);
-      if (result) previewProps.onResult?.(result);
+      const option = previewProps.option;
+      const backdrop = previewProps.backdrop;
+      const draw = ++latest;
+      void paint(canvas, option, backdrop).then(result => {
+        if (result && draw === latest) previewProps.onResult?.(result);
+      });
     });
     return <canvas
       ref={canvas}

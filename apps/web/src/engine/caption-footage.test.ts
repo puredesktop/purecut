@@ -33,10 +33,10 @@ import { prepareCaptionFrame } from './caption-frame';
 import { getDocumentEditor } from './editor';
 import { getEditHistory } from './history';
 import {
-  assessCaptionPaints, assessReadability, highlightColors, layoutCaption, previewText,
+  assessCaptionPaints, assessReadability, highlightColors,
 } from '../components/sidebar-right/inspector/caption-preview';
 import {
-  CAPTION_PRESET_OPTIONS, captionPresetTextStyle, captionStyleFor,
+  CAPTION_PRESET_OPTIONS, captionStyleFor,
 } from '../components/sidebar-right/inspector/caption-types';
 
 const words = (text: string, start: number, each: number) =>
@@ -89,51 +89,6 @@ describe('long caption cues', () => {
 });
 
 describe('caption previews', () => {
-  it('shows what each preset puts on screen', () => {
-    expect(previewText(option('spotlight').look, fixture[0]!, 0.5).activeWord).toEqual({ line: 0, index: 1 });
-    expect(previewText(option('spotlight').look, fixture[0]!, 0.39).activeWord).toBeNull();
-    expect(previewText(option('paper').look, fixture[2]!, 8.1).lines).toHaveLength(2);
-    expect(previewText(option('classic').look, fixture[1]!, 2.5).lines[0]!.split(' ').length).toBeLessThanOrEqual(2);
-  });
-
-  it('lays a caption inside the picture and measures how much it covers', () => {
-    const scene = { width: 1920, height: 1080 };
-    const measure = (text: string, font: string) => text.length * Number(/(\d+)px/.exec(font)![1]) * 0.5;
-    for (const preset of CAPTION_PRESET_OPTIONS) {
-      const layout = layoutCaption(preset.look, captionPresetTextStyle(preset), previewText(preset.look, fixture[1]!, 2.5), scene, measure);
-      expect(layout.block.width).toBeGreaterThan(0);
-      expect(layout.block.x).toBeGreaterThanOrEqual(0);
-      expect(layout.block.x + layout.block.width).toBeLessThanOrEqual(scene.width);
-      expect(layout.coverage).toBeGreaterThan(0);
-      expect(layout.coverage).toBeLessThan(0.5);
-    }
-  });
-
-  it('keeps track of the spoken line and word across wrapped lines', () => {
-    const scene = { width: 1920, height: 1080 };
-    const measure = (text: string) => text.length * 40;
-    const look = { ...option('spotlight').look, box: { width: 400, height: 100 } };
-    const text = { lines: ['one two three four five'], activeLine: 0, activeWord: { line: 0, index: 3 } };
-    const layout = layoutCaption(look, captionPresetTextStyle(option('spotlight')), text, scene, measure);
-    expect(layout.lines.length).toBeGreaterThan(1);
-    const holder = layout.lines.find(line =>
-      line.firstWord <= 3 && 3 < line.firstWord + line.text.split(' ').length)!;
-    expect(holder.text.split(' ')[3 - holder.firstWord]).toBe('four');
-    expect(layout.lines.every(line => line.source === 0)).toBe(true);
-  });
-
-  it('reveals Cascade word by word, as its decoder does', () => {
-    const cascade = option('cascade').look;
-    const group = cue('one two three four five', 4, 0.5);
-    expect(previewText(cascade, group, 4.1).lines).toEqual(['one']);
-    expect(previewText(cascade, group, 5.1).lines).toEqual(['one two three']);
-    expect(previewText(cascade, group, 6.4).lines).toEqual(['one two three four five']);
-    // Before the group plays, its first word stands for it.
-    expect(previewText(cascade, group, 0).lines).toEqual(['one']);
-    // Whisper is not revealed: its whole group (two seconds of words) shows at once.
-    expect(previewText(option('whisper').look, group, 4.1).lines).toEqual(['one two three four']);
-  });
-
   it('judges the highlight colors, not only the base text', () => {
     const spotlight = option('spotlight').look;
     // A black spoken word on a night shot: the white text reads, the word does not.
@@ -192,16 +147,6 @@ describe('previews follow the caption the document will draw', () => {
     } finally { document.dispose(); world.destroy(); }
   });
 
-  it('measures coverage at the caption\'s own size', () => {
-    const scene = { width: 1920, height: 1080 };
-    const measure = (text: string, font: string) => text.length * Number(/(\d+)px/.exec(font)![1]) * 0.5;
-    const whisper = option('whisper');
-    const text = previewText(whisper.look, fixture[1]!, 2.5);
-    const plain = layoutCaption(whisper.look, captionStyleFor(whisper, {}).style, text, scene, measure);
-    const large = layoutCaption(whisper.look, captionStyleFor(whisper, { fontSize: 120 }).style, text, scene, measure);
-    expect(large.coverage).toBeGreaterThan(plain.coverage * 2);
-  });
-
   it('uses renderer defaults when an authored override is invalid', () => {
     const { style } = captionStyleFor(option('whisper'), {
       fontSize: 0, fontFamily: ' ', fontWeight: 'heavy', fontStyle: 'sideways', textAlign: 'justify',
@@ -212,19 +157,6 @@ describe('previews follow the caption the document will draw', () => {
       textAlign: TextAlign.LEFT, textBaseline: TextBaseline.TOP, textCase: TextCase.ORIGINAL,
       leading: 1, letterSpacing: undefined,
     });
-  });
-
-  it('honours oblique, tight leading and alphabetic baseline in layout', () => {
-    const whisper = option('whisper');
-    const style = captionStyleFor(whisper, { fontStyle: 'oblique', leading: 0.5, textBaseline: 'alphabetic' }).style;
-    const text = { lines: ['one', 'two'], activeLine: 0, activeWord: null };
-    const measure = (value: string) => value.length * 20;
-    const layout = layoutCaption(whisper.look, style, text, { width: 1920, height: 1080 }, measure);
-    const topStyle = { ...style, textBaseline: TextBaseline.TOP };
-    const top = layoutCaption(whisper.look, topStyle, text, { width: 1920, height: 1080 }, measure);
-    expect(layout.font(0)).toMatch(/^oblique /);
-    expect(layout.lineHeight).toBeCloseTo(style.fontSize * 0.5 * 1.1);
-    expect(layout.lines[0]!.y).toBe(top.lines[0]!.y);
   });
 
   it('captures the playhead frame even before a work area that starts later', () => {

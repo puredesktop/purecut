@@ -1,6 +1,6 @@
 import { AssetLibrary, type ProjectFS, type Transcript } from '@diffusionstudio/assets';
 import {
-  Caption, CaptionType, Computed, Library, Mode, RenderSurface, Source, Workarea, createRuntimeWorld, getActiveEntity, setActive, store,
+  Caption, CaptionType, Computed, Library, Mode, RenderSurface, Source, Workarea, colorToHex, createRuntimeWorld, getActiveEntity, setActive, store,
 } from '../packages/runtime/src';
 import { authoredElement, mount } from '../packages/reconciler/src';
 import {
@@ -11,9 +11,11 @@ import { getDocumentEditor } from '../apps/web/src/engine/editor';
 import { getEditHistory } from '../apps/web/src/engine/history';
 import { forgetProjectBundle, rememberProjectBundle } from '../apps/web/src/lib/db';
 import {
-  assessReadability, layoutCaption, paintCaptionSample, paintSampleBackdrop, previewText,
+  assessCaptionPaints, cropPixels, highlightColors, paintSampleBackdrop,
 } from '../apps/web/src/components/sidebar-right/inspector/caption-preview';
-import { CAPTION_PRESET_OPTIONS, captionPresetTextStyle } from '../apps/web/src/components/sidebar-right/inspector/caption-types';
+import { CAPTION_PRESET_OPTIONS, captionTextPaint } from '../apps/web/src/components/sidebar-right/inspector/caption-types';
+import { CaptionSampler } from '../apps/web/src/engine/caption-sample';
+import type { CaptionPreset } from '@diffusionstudio/jsx';
 import { WorldProvider } from '@diffusionstudio/koota-solid';
 import { render } from 'solid-js/web';
 import { ProjectProvider } from '../apps/web/src/context/project';
@@ -57,50 +59,83 @@ function checkRules() {
   if (trimmed.frame !== 60 || trimmed.onTimeline) throw Error('A trimmed cue lands on the clip edge and says so');
 }
 
+/** The bounds of what was drawn on a canvas that started transparent. */
+function inkBounds(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const { data } = ctx.getImageData(0, 0, width, height);
+  let left = width, right = -1, top = height, bottom = -1;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    if (data[(y * width + x) * 4 + 3]! < 32) continue;
+    left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+  }
+  return right < 0 ? null : { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+}
+
 /**
- * The previews on bright and dark shots, on a real canvas: white text with no
- * shadow vanishes on a white shirt and reads on a night shot; Classic's shadow
- * helps it on the bright one. Returns the drawn previews for a look.
+ * The previews on bright and dark shots, drawn by the runtime on a real
+ * canvas with real fonts: white text with no shadow vanishes on a white shirt
+ * and reads on a night shot; Classic's shadow helps it on the bright one; the
+ * bounds a preview reports are the bounds of the glyphs it drew. Returns the
+ * drawn previews to look at.
  */
-function checkReadability(): Record<string, string> {
+async function checkReadability(): Promise<Record<string, string>> {
   const scene = { width: 1920, height: 1080 };
+  const sampler = new CaptionSampler();
   const canvas = document.createElement('canvas');
   const drawn: Record<string, string> = {};
   const verdicts: Record<string, string> = {};
-  for (const option of CAPTION_PRESET_OPTIONS) {
-    for (const backdrop of ['bright', 'dark'] as const) {
-      canvas.width = 480; canvas.height = 270;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-      const scale = canvas.width / scene.width;
-      paintSampleBackdrop(ctx, backdrop, canvas.width, canvas.height);
-      const style = captionPresetTextStyle(option);
-      const text = previewText(option.look, fixture[1]!, 2.5);
-      const layout = layoutCaption(option.look, style, text, scene, (value, font) => { ctx.font = font; return ctx.measureText(value).width; });
-      if (!text.lines.length || layout.block.width <= 0) throw Error(`${option.label} laid out nothing`);
-      if (layout.block.x < 0 || layout.block.x + layout.block.width > scene.width + 1)
-        throw Error(`${option.label} runs off the picture: ${JSON.stringify(layout.block)}`);
-      const { x, y, width, height } = layout.block;
-      const pixels = ctx.getImageData(Math.floor(x * scale), Math.floor(y * scale), Math.ceil(width * scale), Math.ceil(height * scale)).data;
-      verdicts[`${option.name}:${backdrop}`] = assessReadability(pixels, 0xffffff, option.look).verdict;
-      paintCaptionSample(ctx, { look: option.look, style, layout, text, fill: 0xffffff, colors: option.slots.map(s => s.defaultColor), scale });
-      drawn[`${option.name}-${backdrop}`] = canvas.toDataURL('image/png');
+  try {
+    for (const option of CAPTION_PRESET_OPTIONS) {
+      const colors = option.slots.map(slot => slot.defaultColor);
+      for (const backdrop of ['bright', 'dark'] as const) {
+        canvas.width = 480; canvas.height = 270;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+        const scale = canvas.width / scene.width;
+        paintSampleBackdrop(ctx, backdrop, canvas.width, canvas.height);
+        const picture = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const { block } = await sampler.draw(ctx, {
+          scene, scale, props: {}, preset: option.name, colors: colors.map(colorToHex), transcript: fixture, seconds: 2.5,
+        });
+        if (!block || block.width <= 0) throw Error(`${option.label} drew nothing`);
+        const x = Math.max(0, Math.floor(block.x * scale)), y = Math.max(0, Math.floor(block.y * scale));
+        const w = Math.min(canvas.width - x, Math.ceil(block.width * scale)), h = Math.min(canvas.height - y, Math.ceil(block.height * scale));
+        const paint = captionTextPaint(option, {});
+        verdicts[`${option.name}:${backdrop}`] = assessCaptionPaints(cropPixels(picture, x, y, w, h),
+          { text: paint.text, highlights: highlightColors(option.look, colors) },
+          { shadow: option.look.shadow, difference: paint.difference }).verdict;
+        drawn[`${option.name}-${backdrop}`] = canvas.toDataURL('image/png');
+      }
     }
-  }
-  if (verdicts['whisper:bright'] !== 'lost') throw Error(`White Whisper on a bright shot must read as lost: ${JSON.stringify(verdicts)}`);
-  if (verdicts['whisper:dark'] !== 'clear') throw Error(`White Whisper on a dark shot must read clearly: ${JSON.stringify(verdicts)}`);
-  if (verdicts['classic:bright'] === 'lost') throw Error(`Classic's shadow must help on a bright shot: ${JSON.stringify(verdicts)}`);
-  const grey = new Uint8ClampedArray(400).fill(128);
-  if (assessReadability(grey, 0xffffff, { difference: true }).verdict !== 'lost') throw Error('Stark vanishes on mid grey');
-  const spotlight = previewText(CAPTION_PRESET_OPTIONS.find(o => o.name === 'spotlight')!.look, fixture[0]!, 0.5);
-  if (spotlight.activeWord?.index !== 1) throw Error('Spotlight marks the word being spoken');
-  const paper = previewText(CAPTION_PRESET_OPTIONS.find(o => o.name === 'paper')!.look, fixture[2]!, 8.1);
-  if (paper.lines.length !== 2) throw Error('Paper shows two lines');
+    if (verdicts['whisper:bright'] !== 'lost') throw Error(`White Whisper on a bright shot must read as lost: ${JSON.stringify(verdicts)}`);
+    if (verdicts['whisper:dark'] !== 'clear') throw Error(`White Whisper on a dark shot must read clearly: ${JSON.stringify(verdicts)}`);
+    if (verdicts['classic:bright'] === 'lost') throw Error(`Classic's shadow must help on a bright shot: ${JSON.stringify(verdicts)}`);
+
+    // Reported bounds against drawn glyphs, at full scale on a clear canvas:
+    // a single line with a leading override, and Guinea's two lines.
+    const cases: [string, CaptionPreset, Record<string, unknown>, Transcript, number][] = [
+      ['single line, leading 3', 'whisper', { leading: 3 }, [cue('Plain words here', 1, 0.3)], 1.1],
+      ['Guinea, two lines', 'guinea', {}, [cue('alpha beta gamma delta', 2, 0.4)], 2.1],
+      ['Stark with a white fill', 'stark', { fill: '#ffffff' }, [cue('LOUD WORDS', 0, 0.5)], 0.1],
+    ];
+    for (const [name, preset, props, transcript, seconds] of cases) {
+      canvas.width = scene.width; canvas.height = scene.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const { block } = await sampler.draw(ctx, { scene, scale: 1, props, preset, colors: false, transcript, seconds });
+      const ink = inkBounds(ctx, canvas.width, canvas.height);
+      if (!block || !ink) throw Error(`${name}: nothing drawn`);
+      // Glyph boxes hold their ink; the ink fills most of them.
+      const slack = 6;
+      if (ink.x < block.x - slack || ink.y < block.y - slack || ink.x + ink.width > block.x + block.width + slack
+        || ink.y + ink.height > block.y + block.height + slack || ink.height < block.height * 0.5)
+        throw Error(`${name}: drawn ${JSON.stringify(ink)} outside reported ${JSON.stringify(block)}`);
+    }
+  } finally { sampler.dispose(); }
   return drawn;
 }
 
 export async function checkCaptionFootage(): Promise<Record<string, string>> {
   checkRules();
-  const drawn = checkReadability();
+  const drawn = await checkReadability();
   const check = (value: unknown, message: string) => { if (!value) throw Error(message); };
 
   const files = new Map<string, File>();
