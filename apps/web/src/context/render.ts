@@ -97,9 +97,10 @@ export async function renderScene(
     console.info(`[export] ${percent}%`);
   };
 
+  engine.stop();
+
   let capture: Capture | undefined;
   try {
-    engine.stop();
     capture = await createCapture(world, scene, {
       dir,
       frameRate: config?.video?.fps,
