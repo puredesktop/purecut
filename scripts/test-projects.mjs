@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 const port = 5562;
 const server = spawn(
   process.execPath,
@@ -115,6 +115,7 @@ try {
       await (await import('/scripts/browser-cache-check.ts')).checkCacheWrites();
       await (await import('/scripts/browser-subtitle-check.ts')).checkSubtitles();
       await (await import('/scripts/browser-caption-editing-check.tsx')).checkCaptionEditing();
+      globalThis.__captionFootage = await (await import('/scripts/browser-caption-footage-check.tsx')).checkCaptionFootage();
       await (await import('/scripts/browser-subtitle-timeline-check.tsx')).checkTimelineSubtitles();
       await (await import('/scripts/browser-caption-render-check.ts')).checkCaptionRendering();
       await (await import('/scripts/browser-caption-render-check.ts')).checkCaptionRendering(true);
@@ -508,6 +509,12 @@ try {
   // Outfit is bundled: nothing for it may go to a remote host.
   if (blockedFontRequests.some((url) => /outfit/i.test(url)))
     throw Error(`Bundled Outfit was requested remotely: ${blockedFontRequests.filter((url) => /outfit/i.test(url)).join(', ')}`);
+  // The footage previews, saved to look at: each preset on the bright and the dark shot.
+  await mkdir('/tmp/purecut-visual', { recursive: true });
+  const footage = await page.evaluate(() => globalThis.__captionFootage);
+  for (const [name, url] of Object.entries(footage))
+    await writeFile(`/tmp/purecut-visual/caption-${name}.png`, Buffer.from(url.split(',')[1], 'base64'));
+  console.log(`PASS: caption footage previews (${Object.keys(footage).length}) in /tmp/purecut-visual`);
   console.log(`PASS: caption preset colours ${await page.evaluate(() => JSON.stringify(globalThis.__captionColours))} with ${blockedFontRequests.length} remote font request(s) blocked`);
 } finally {
   await browser?.close();
