@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { mkdir } from 'node:fs/promises';
+await import('./test-export-target.mjs');
 const port = 5562;
 const server = spawn(
   process.execPath,
@@ -23,8 +24,10 @@ try {
   }
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage();
-  page.on('console', message => console.log('BROWSER', message.type(), message.text()));
-  page.on('framenavigated', frame => { if (frame === page.mainFrame()) console.log('NAVIGATED', frame.url()); });
+  if (process.env.PURECUT_TEST_VERBOSE) {
+    page.on('console', message => console.log('BROWSER', message.type(), message.text()));
+    page.on('framenavigated', frame => { if (frame === page.mainFrame()) console.log('NAVIGATED', frame.url()); });
+  }
   // Remote caption-preset font hosts are blocked so the checks prove text
   // still draws (in a fallback face) offline.
   const blockedFontRequests = [];

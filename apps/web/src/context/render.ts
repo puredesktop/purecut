@@ -57,11 +57,19 @@ export type RenderSceneOptions = {
   dir?: string;
 };
 
+/** Shared UI/agent guard; callers must not treat contention as a failed export. */
+export class ExportBusyError extends Error {
+  constructor() {
+    super('An export is already running. Wait for it to finish or cancel it first.');
+    this.name = 'ExportBusyError';
+  }
+}
+
 export async function renderScene(
   engine: Engine,
   { scene, target, config, dir }: RenderSceneOptions,
 ): Promise<ExportResult & { sourceHash?: string }> {
-  if (overlay()) throw Error('An export is already running. Wait for it to finish or cancel it first.');
+  if (overlay()) throw new ExportBusyError();
   const world = engine.world;
 
   const audioOnly = config?.video?.enabled === false || config?.format === "ogg";

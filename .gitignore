@@ -45,6 +45,8 @@ purecut/service.mjs
 dist-purecut/
 purecut/frame.js
 purecut/frame-runtime.js
+purecut/frame-runtime.css
+purecut/KaTeX_*
 
 purecut/compiler-runtime.js
 

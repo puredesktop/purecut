@@ -155,7 +155,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 	// Set up mediabunny output
 	let buffer: TargetBuffer;
 	try {
-		buffer = await TargetBuffer.create(config.target, config.chunkSize);
+		buffer = await TargetBuffer.create(config.target);
 	} catch (error) {
 		throw asExportError('write', error);
 	}

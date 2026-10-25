@@ -4,6 +4,7 @@ import { AssetLibrary, type ProjectFS } from '@diffusionstudio/assets';
 import { CanvasSource } from 'mediabunny';
 import { bridge as storageBridge } from '@purescience/platform-ui/bridge/client.mjs';
 import { Library } from '@diffusionstudio/runtime';
+import { TargetBuffer } from '../packages/encoder/src/buffer';
 import { EngineProvider, useEngineContext, type Engine } from '../apps/web/src/engine';
 import { createRuntimeDocument } from '../packages/reconciler/src';
 import { ExportProvider, useExport } from '../apps/web/src/context/export';
@@ -11,7 +12,7 @@ import { ProjectProvider } from '../apps/web/src/context/project';
 import { rememberProjectBundle, forgetProjectBundle } from '../apps/web/src/lib/db';
 import { mainBridge } from '../apps/web/src/lib/ipc';
 import { MAIN_CHANNELS } from '../purecut/editor-core/main-channels';
-import { cancelRender, renderOverlay, type ExportConfig } from '../apps/web/src/context/render';
+import { cancelRender, renderOverlay, renderScene, ExportBusyError, type ExportConfig } from '../apps/web/src/context/render';
 import type { ProjectInfo } from '../apps/web/src/projects';
 
 const RECT_BUNDLE = `
@@ -30,6 +31,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
   const originalBridgeCall = bridge.call;
   const originalStorageBridgeCall = storageBridge.call;
   const originalMainCall = mainBridge.call;
+  const originalTargetBufferCreate = TargetBuffer.create;
   const originalVideoAdd = CanvasSource.prototype.add;
   let api!: ReturnType<typeof useExport>;
   let engine!: Engine;
@@ -66,6 +68,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     throw Error(`Unexpected export bridge call: ${method}`);
   };
   bridge.call = handleBridgeCall;
+  // Export history uses the shared storage bridge, not the bridge passed to this fixture.
   storageBridge.call = handleBridgeCall;
   mainBridge.call = (async (channel: string) => {
     if (channel === MAIN_CHANNELS.FILE_WRITE_OPEN) {
@@ -146,9 +149,10 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
 
   const originalStop = engine.stop;
   try {
-    await rememberProjectBundle(projectId, RECT_BUNDLE);
+    // A broken compiled project fails in createCapture, as a real export does.
+    await rememberProjectBundle(projectId, `throw Error('Fixture render failure');`);
     let renderAttempts = 0;
-    engine.stop = () => { renderAttempts++; throw Error('Fixture render failure'); };
+    engine.stop = () => { renderAttempts++; originalStop(); };
     toast('Unrelated notice', { duration: Infinity });
     await api.exportScene(scene.entity, config);
     await expectFailure('render', 'Try the export again');
@@ -179,10 +183,10 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     await expectFailure('encode', 'resolution or another codec');
     check(aborts === 2, 'every failed retry must dispose its partial file');
 
-    engine.stop = () => { throw Error('Later attempt failed before rendering'); };
+    await rememberProjectBundle(projectId, `throw Error('Later project failed to render');`);
     await api.exportScene(scene.entity, { ...config, format: 'ogg' });
     await expectFailure('render', 'Try the export again');
-    engine.stop = originalStop;
+    await rememberProjectBundle(projectId, RECT_BUNDLE);
     staleRetry();
     await wait(() => encodeAttempts === 3, 'an older Retry must keep its own settings');
     await expectFailure('encode', 'resolution or another codec');
@@ -199,14 +203,16 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     failWrites = false;
     toast.dismiss();
 
-    const chunkedConfig: ExportConfig = { ...config, chunkSize: 1024 };
+    TargetBuffer.create = (handle => originalTargetBufferCreate(handle, 1024)) as typeof TargetBuffer.create;
     CanvasSource.prototype.add = (async function (this: CanvasSource, ...args: Parameters<CanvasSource['add']>) {
       await originalVideoAdd.apply(this, args);
       videoFramesAdded++;
     }) as typeof originalVideoAdd;
+    chunkAttempts = 0;
     failChunks = true;
-    await api.exportScene(scene.entity, chunkedConfig);
+    await api.exportScene(scene.entity, config);
     await expectFailure('write', 'free space');
+    TargetBuffer.create = originalTargetBufferCreate;
     CanvasSource.prototype.add = originalVideoAdd;
     check(chunkAttempts === 2, 'the chunk-write fixture must fail after a successful chunk write');
     check(videoFramesAdded > 0 && videoFramesAdded < 24, 'the chunk write must fail while frames are still being encoded');
@@ -219,6 +225,12 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     const beforeCancelWriteAttempts = writeAttempts;
     const pending = api.exportScene(scene.entity, config);
     await wait(() => renderOverlay(), 'long export did not start');
+    try {
+      await renderScene(engine, { scene: scene.entity, target: { createWritable: async () => { throw Error('busy render opened a file'); } }, config });
+      throw Error('concurrent render must reject');
+    } catch (error) {
+      check(error instanceof ExportBusyError, 'shared render guard must return a typed busy error');
+    }
     await api.exportScene(scene.entity, { ...config, video: { ...config.video, bitrate: 123_456 } });
     const busy = toast.getHistory().find(entry => 'title' in entry && entry.title === 'Export already running');
     check(busy, 'a concurrent export must explain that an export is already running');
@@ -233,13 +245,30 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     await rememberProjectBundle(projectId, RECT_BUNDLE);
     await deletedSceneRetry();
     await wait(() => history.length === 1, 'successful retry did not finish');
-    check(JSON.stringify((history[0] as { config: unknown }).config) === JSON.stringify(chunkedConfig), 'successful retry history must preserve every export setting');
+    check(JSON.stringify((history[0] as { config: unknown }).config) === JSON.stringify(config), 'successful retry history must preserve every export setting');
     check(toast.getHistory().some(entry => 'title' in entry && entry.title === 'Export complete'), 'successful retry must report completion');
+
+    // The caller can change settings while codec preflight is awaiting support.
+    // Both the first attempt and its Retry must keep the invocation's snapshot.
+    await rememberProjectBundle(projectId, `throw Error('Snapshot fixture render failure');`);
+    const changingConfig = structuredClone(config);
+    const starting = api.exportScene(scene.entity, changingConfig);
+    changingConfig.format = 'ogg';
+    changingConfig.video!.fps = 60;
+    await starting;
+    await expectFailure('render', 'Try the export again');
+    const snapshotRetry = retryAction();
+    await rememberProjectBundle(projectId, RECT_BUNDLE);
+    snapshotRetry();
+    await wait(() => history.length === 2, 'snapshot retry did not finish');
+    check(history.every(entry => JSON.stringify((entry as { config: unknown }).config) === JSON.stringify(configSnapshot)),
+      'Retry must preserve the settings from invocation, before asynchronous preflight');
 
     scene.entity.destroy();
     deletedSceneRetry();
     await wait(() => toast.getHistory().some(entry => 'title' in entry && entry.title === 'Scene no longer available'), 'Retry after scene deletion must explain what happened');
   } finally {
+    TargetBuffer.create = originalTargetBufferCreate;
     CanvasSource.prototype.add = originalVideoAdd;
     library.resolve = originalResolve;
     engine.stop = originalStop;

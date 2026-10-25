@@ -15,7 +15,7 @@ import { useProject } from "@/context/project";
 import { ElectronWritableFileHandle } from "@/lib/electron-file-writable";
 import { track } from "@/lib/analytics";
 import { RenderProgress } from "@/components/sidebar-right/inspector/export-progress";
-import { renderScene, renderOverlay, type ExportConfig } from "@/context/render";
+import { renderScene, renderOverlay, ExportBusyError, type ExportConfig } from "@/context/render";
 import { recordSuccessfulExport } from '@/lib/export-history';
 import {
   MIME_TYPES,
@@ -75,7 +75,7 @@ export function ExportProvider(props: { children: JSX.Element }) {
     return error;
   };
 
-  const exportScene: ExportContextValue["exportScene"] = async (scene, config) => {
+  const exportScene: ExportContextValue["exportScene"] = async (scene, selectedConfig) => {
     if (!scene?.isAlive()) {
       toast.error("Scene no longer available", {
         description: "The scene for this export has been deleted, so it cannot be retried.",
@@ -88,6 +88,10 @@ export function ExportProvider(props: { children: JSX.Element }) {
     }
     toast.dismiss(failureToast);
 
+    // Freeze this attempt before codec checks or the save picker can yield.
+    // The caller may change its settings while either is pending.
+    const config = structuredClone(selectedConfig);
+    const attempt = { scene, config };
     const format = config.format ?? "mp4";
     const mimeType = MIME_TYPES[format];
 
@@ -141,7 +145,6 @@ export function ExportProvider(props: { children: JSX.Element }) {
       return;
     }
 
-    const attempt = { scene, config: structuredClone(config) };
     const disposePartial = async () => {
       if (target instanceof ElectronWritableFileHandle) await target.dispose().catch(() => {});
     };
@@ -200,7 +203,7 @@ export function ExportProvider(props: { children: JSX.Element }) {
       }
     } catch (e) {
       await disposePartial();
-      if (e instanceof Error && e.message.includes("An export is already running")) {
+      if (e instanceof ExportBusyError) {
         showBusy();
         return;
       }
