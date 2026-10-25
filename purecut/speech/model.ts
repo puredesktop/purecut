@@ -298,6 +298,132 @@ export function listedCuts(cuts: Range[], limit = LISTED_CUTS) {
       : {}),
   }
 }
+/** Seconds removed by a list of cuts; reviews and replies use this one sum. */
+export const removedSeconds = (cuts: Range[]) =>
+  cuts.reduce((n, r) => n + r.end - r.start, 0)
+/** Edited-timeline seconds as m:ss.cc, the precision a frame needs. */
+export function formatTimestamp(seconds: number) {
+  const hundredths = Math.round(Math.max(0, seconds) * 100)
+  const minutes = Math.floor(hundredths / 6000)
+  return `${minutes}:${((hundredths % 6000) / 100).toFixed(2).padStart(5, '0')}`
+}
+export const formatSeconds = (seconds: number) => `${seconds.toFixed(2)} s`
+/** A reviewed cut with the words either side, so a person can judge what it removes. */
+export type CutContext = Range & {
+  duration: number
+  before: TimelineWord[]
+  /** Words wholly inside the cut: nothing of them is left. */
+  removed: TimelineWord[]
+  /** Every other word the cut touches: a fragment of it stays audible. */
+  trimmed: TimelineWord[]
+  after: TimelineWord[]
+}
+function firstAtOrAfter(words: TimelineWord[], time: number) {
+  let lo = 0,
+    hi = words.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (words[mid].start < time) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+/** One entry per cut, in the cuts' own order and with their exact bounds. */
+export function cutContexts(
+  cuts: Range[],
+  words: TimelineWord[],
+  context = 4,
+): CutContext[] {
+  // Words are ordered by start, but timings may overlap, so ends are not
+  // ordered: a long word can reach past later, shorter ones. reach[i] is the
+  // latest end among words 0..i, which bounds how far back a cut can touch.
+  const reach: number[] = []
+  words.forEach((word, i) => {
+    reach[i] = Math.max(i ? reach[i - 1] : -Infinity, word.end)
+  })
+  return cuts.map(cut => {
+    const hi = firstAtOrAfter(words, cut.end - 0.001)
+    const removed: TimelineWord[] = [],
+      trimmed: TimelineWord[] = [],
+      before: TimelineWord[] = []
+    for (let i = hi - 1; i >= 0; i--) {
+      if (reach[i] <= cut.start + 0.001 && before.length >= context) break
+      const word = words[i]
+      const overlap =
+        Math.min(word.end, cut.end) - Math.max(word.start, cut.start)
+      if (overlap > 0.001) {
+        const whole = word.start >= cut.start - 0.001 && word.end <= cut.end + 0.001
+        ;(whole ? removed : trimmed).unshift(word)
+      } else if (before.length < context) before.unshift(word)
+    }
+    return {
+      start: cut.start,
+      end: cut.end,
+      duration: cut.end - cut.start,
+      before,
+      removed,
+      trimmed,
+      after: words.slice(hi, hi + context),
+    }
+  })
+}
+/**
+ * The note under a cut in the review, or null. Every word the cut only partly
+ * removes is named: a fragment of it stays audible.
+ */
+export function cutWarning(
+  item: CutContext,
+  content: CutContent | 'unknown',
+): { tone: 'warning' | 'caution'; text: string } | null {
+  const partly = `“${item.trimmed.map(w => w.text).join(' ')}”`
+  if (content === 'partial')
+    return { tone: 'warning', text: `This cuts into ${partly} rather than between words. Adjust the boundary or keep this section.` }
+  if (content === 'words' && item.trimmed.length)
+    return { tone: 'warning', text: `Also cuts into ${partly}, so part of it stays. Adjust the boundary if it sounds cut off.` }
+  if (content === 'untranscribed' || content === 'unknown')
+    return { tone: 'caution', text: 'Not checked against the audio. Listen before applying.' }
+  return null
+}
+/** Plain-language rule for pause cleanup, shown before any audio is analysed. */
+export function pauseRule(minimum: number, retain: number) {
+  if (!Number.isFinite(minimum) || minimum <= 0)
+    return { valid: false, text: 'Enter how long a pause must be before it is shortened.' }
+  if (!Number.isFinite(retain) || retain < 0 || retain >= minimum)
+    return { valid: false, text: `The pause you keep must be shorter than ${formatSeconds(minimum)}.` }
+  return {
+    valid: true,
+    text: `Silences longer than ${formatSeconds(minimum)} are shortened so about ${formatSeconds(retain)} of quiet remains. Shorter pauses stay as they are, and spoken words are never cut.`,
+  }
+}
+/** Waveform silences on the edited timeline, the same mapping pauseCuts uses. */
+export function timelineSilences(silences: Range[], clips: Clip[]): Range[] {
+  return ranges(
+    clips.flatMap(c =>
+      silences.flatMap(s => {
+        const start = Math.max(c.sourceIn, s.start),
+          end = Math.min(c.sourceIn + c.end - c.start, s.end)
+        return end > start
+          ? [{ start: c.start + start - c.sourceIn, end: c.start + end - c.sourceIn }]
+          : []
+      }),
+    ),
+  )
+}
+/**
+ * What a cut takes out, as far as the evidence goes. "silence" needs the
+ * waveform: a stretch with no transcribed words may still hold speech the
+ * transcript missed, so without silences it is only "untranscribed".
+ */
+export type CutContent = 'words' | 'partial' | 'silence' | 'untranscribed'
+export function cutContent(item: CutContext, silences?: Range[]): CutContent {
+  if (item.removed.length) return 'words'
+  if (item.trimmed.length) return 'partial'
+  return silences?.some(
+    s => s.start <= item.start + 1e-6 && s.end >= item.end - 1e-6,
+  )
+    ? 'silence'
+    : 'untranscribed'
+}
 export function pauseCuts(
   silences: Range[],
   clips: Clip[],
