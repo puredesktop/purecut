@@ -21,7 +21,7 @@ const { outputFiles } = await build({
     b.onResolve({ filter: /^@diffusionstudio\/encoder$/ }, args => args.importer.endsWith('/context/render.ts') ? ({ path: 'encoder', namespace: 'render-fixture' }) : undefined);
     b.onLoad({ filter: /.*/, namespace: 'render-fixture' }, args => ({ contents: args.path === 'capture'
       ? 'export const createCapture = (...args) => globalThis.__purecutRenderTest.capture(...args);'
-      : 'export const createEncoder = (...args) => globalThis.__purecutRenderTest.encoder(...args);' }));
+      : 'export const createEncoder = (...args) => globalThis.__purecutRenderTest.encoder(...args); export const asExportError = (stage, error) => Object.assign(error instanceof Error ? error : Error(String(error)), { stage });' }));
   } }],
   external: ['../compiler-runtime.js'], banner: { js: `import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);` }, define: { 'import.meta.env': '{}' },
 });

@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { createSignal } from "solid-js";
-import { createEncoder } from "@diffusionstudio/encoder";
+import { asExportError, createEncoder } from "@diffusionstudio/encoder";
 
 import { ElectronWritableFileHandle } from "@/lib/electron-file-writable";
 import { createCapture } from "@/engine/capture";
@@ -58,11 +58,19 @@ export type RenderSceneOptions = {
   dir?: string;
 };
 
+/** Shared UI/agent guard; callers must not treat contention as a failed export. */
+export class ExportBusyError extends Error {
+  constructor() {
+    super('An export is already running. Wait for it to finish or cancel it first.');
+    this.name = 'ExportBusyError';
+  }
+}
+
 export async function renderScene(
   engine: Engine,
   { scene, target, config, dir }: RenderSceneOptions,
 ): Promise<ExportResult & { sourceHash?: string }> {
-  if (overlay()) throw Error('An export is already running. Wait for it to finish or cancel it first.');
+  if (overlay()) throw new ExportBusyError();
   const world = engine.world;
 
   const audioOnly = config?.video?.enabled === false || config?.format === "ogg";
@@ -120,7 +128,7 @@ export async function renderScene(
             : prev,
         );
       },
-    });
+    }).catch((error) => { throw asExportError('encode', error); });
 
     cancelActive = () => { encoder.cancel(); cancelTarget(); };
     if (cancelled) { encoder.cancel(); cancelTarget(); }
@@ -133,7 +141,7 @@ export async function renderScene(
     return { ...result, sourceHash: capture.sourceHash };
   } catch (error) {
     if (cancelled) return { type: 'canceled' };
-    throw error;
+    throw asExportError('render', error);
   } finally {
     await aborting;
     cancelActive = undefined;

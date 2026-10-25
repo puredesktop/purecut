@@ -30,7 +30,7 @@ import { Separator } from "@/components/ui/separator";
 import { SliderInput } from "@/components/ui/slider-input";
 import { formatBytes, formatDuration } from "@/utils/formatters";
 import { useTrait, useWorld } from "@diffusionstudio/koota-solid";
-import { Computed, FrameRate, Source } from "@diffusionstudio/runtime";
+import { Computed, FrameRate, Name, Source } from "@diffusionstudio/runtime";
 import { useActiveScene, useDerived } from "@/engine/hooks";
 import { useProjectConfig } from "@/engine/project-config";
 import { useExport } from "@/context/export";
@@ -106,6 +106,8 @@ function createSceneExport(entity: Accessor<Entity | undefined>) {
   const { exportScene, exporting } = useExport();
 
   const source = useTrait(entity, Source);
+  const sceneName = useTrait(entity, Name);
+  const scope = createMemo(() => sceneName()?.value || "Current scene");
   const settings = createMemo(() => {
     source();
     const current = entity();
@@ -234,11 +236,13 @@ function createSceneExport(entity: Accessor<Entity | undefined>) {
 
   return {
     settings,
+    scope,
     resolutionOptions,
     selectedResolution,
     exportSupported,
     exporting,
     label,
+    frameRate,
     durationInSeconds,
     estimatedFileSize,
     applyTemplate,
@@ -249,15 +253,30 @@ function createSceneExport(entity: Accessor<Entity | undefined>) {
   };
 }
 
+export function ExportRecap(props: { width?: number; height?: number; fps?: number; format?: ContainerFormat; videoEnabled?: boolean; scope: string }) {
+  const showVideo = () => props.format !== "ogg" && props.videoEnabled !== false;
+  return (
+    <p class="text-xs text-muted-foreground" aria-label="Export summary">
+      <Show when={showVideo()}>
+        {props.width && props.height ? `${props.width}×${props.height}` : "Dimensions unavailable"}
+        {" · "}{props.fps ?? 30} FPS{" · "}
+      </Show>
+      {(props.format ?? "mp4").toUpperCase()}{" · "}Scene: {props.scope}
+    </p>
+  );
+}
+
 /** How the selected scene is exported, and the way to change it. */
 export function ExportPanel(props: ExportPanelProps) {
   const {
     settings,
+    scope,
     resolutionOptions,
     selectedResolution,
     exportSupported,
     exporting,
     label,
+    frameRate,
     durationInSeconds,
     estimatedFileSize,
     applyTemplate,
@@ -310,6 +329,14 @@ export function ExportPanel(props: ExportPanelProps) {
             <TooltipContent>Remove export</TooltipContent>
           </Tooltip>
         </ItemRow>
+        <ExportRecap
+          width={selectedResolution()?.width}
+          height={selectedResolution()?.height}
+          fps={settings()?.video?.fps ?? frameRate()?.value}
+          format={settings()?.format}
+          videoEnabled={settings()?.video?.enabled}
+          scope={scope()}
+        />
         <Tooltip disabled={exportSupported()}>
           <TooltipTrigger as="div" class="w-full">
             <Button class="w-full" onClick={runExport} disabled={exporting() || !exportSupported()}>
@@ -337,6 +364,7 @@ export function ExportPanel(props: ExportPanelProps) {
             settings={current()}
             resolutionOptions={resolutionOptions()}
             selectedResolution={selectedResolution()}
+            frameRate={frameRate()?.value ?? 30}
             anchorRef={inspectorAnchorRef}
             onClose={() => setIsInspectorOpen(false)}
             onSelectTemplate={applyTemplate}
@@ -370,10 +398,12 @@ export function ExportVideoButton(props: ExportVideoButtonProps) {
 
   const {
     settings,
+    scope,
     resolutionOptions,
     selectedResolution,
     exportSupported,
     exporting,
+    frameRate,
     durationInSeconds,
     estimatedFileSize,
     applyTemplate,
@@ -409,12 +439,21 @@ export function ExportVideoButton(props: ExportVideoButtonProps) {
             settings={current()}
             resolutionOptions={resolutionOptions()}
             selectedResolution={selectedResolution()}
+            frameRate={frameRate()?.value ?? 30}
             anchorRef={anchorRef}
             onClose={() => setIsInspectorOpen(false)}
             onSelectTemplate={applyTemplate}
             onPatch={patchSettings}
             footer={
               <>
+                <ExportRecap
+                  width={selectedResolution()?.width}
+                  height={selectedResolution()?.height}
+                  fps={current().video?.fps ?? frameRate()?.value}
+                  format={current().format}
+                  videoEnabled={current().video?.enabled}
+                  scope={scope()}
+                />
                 <Tooltip disabled={exportSupported()}>
                   <TooltipTrigger as="div" class="w-full">
                     <Button
@@ -452,6 +491,7 @@ type ExportInspectorProps = {
   settings: ProjectExportConfig;
   resolutionOptions: ResolutionOption[];
   selectedResolution: ResolutionOption | null;
+  frameRate: number;
   anchorRef: HTMLDivElement | undefined;
   onClose: () => void;
   onSelectTemplate: (id: string) => void;
@@ -610,7 +650,7 @@ function ExportInspector(props: ExportInspectorProps) {
             </ControlRow>
             <ControlRow label="Frame rate">
               <Select
-                value={config().video?.fps ?? 30}
+                value={config().video?.fps ?? props.frameRate}
                 options={[...FRAME_RATE_OPTIONS]}
                 onChange={(value) => value && write({ video: { fps: value } })}
                 itemComponent={(itemProps) => (
@@ -618,7 +658,7 @@ function ExportInspector(props: ExportInspectorProps) {
                 )}
               >
                 <SelectTrigger>
-                  <SelectValue>{config().video?.fps ?? 30} FPS</SelectValue>
+                  <SelectValue>{config().video?.fps ?? props.frameRate} FPS</SelectValue>
                 </SelectTrigger>
                 <SelectPortal>
                   <SelectContent />

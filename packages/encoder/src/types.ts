@@ -10,6 +10,8 @@ export type ContainerFormat = 'mp4' | 'webm' | 'ogg' | 'mov';
 // Minimal FileSystemFileHandle-shaped target
 export interface WritableFileTarget {
 	createWritable(): Promise<WritableStream<StreamTargetChunk>>;
+	/** Aborts and removes the partial output even after its stream has failed. */
+	dispose?(): Promise<void>;
 }
 
 export type EncoderProgress = {
@@ -17,6 +19,22 @@ export type EncoderProgress = {
 	progress: number;
 	remaining: Date;
 };
+
+export type ExportStage = 'render' | 'decode' | 'encode' | 'write';
+
+export class ExportError extends Error {
+	public readonly cause: unknown;
+
+	public constructor(public readonly stage: ExportStage, error: unknown) {
+		super(error instanceof Error ? error.message : String(error));
+		this.name = 'ExportError';
+		this.cause = error;
+	}
+}
+
+export function asExportError(stage: ExportStage, error: unknown): ExportError {
+	return error instanceof ExportError ? error : new ExportError(stage, error);
+}
 
 export type ExportResult =
 	| {
@@ -28,5 +46,5 @@ export type ExportResult =
 	}
 	| {
 		type: 'error';
-		error: Error;
+		error: ExportError;
 	};

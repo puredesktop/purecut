@@ -19,7 +19,7 @@ import {
 	AudioPlayback, Computed,
 	Position, Offset, Rotation, Scale, Skew,
 	Time, FrameRate, RenderSurface, AudioEngine, Root,
-	FramePromises,
+	FramePromises, SourceError, getEntityTree,
 } from '@diffusionstudio/runtime';
 
 import { TargetBuffer } from './buffer';
@@ -28,7 +28,7 @@ import { computeOutputSize, createRenderEventDetail } from './utils';
 
 import type { Entity, World } from 'koota';
 import type { EncoderConfig } from './interfaces';
-import type { ExportResult } from './types';
+import { asExportError, type ExportResult, type ExportStage } from './types';
 
 /**
  * The scene a capture world holds. An encoder takes the world as it is —
@@ -64,7 +64,15 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 	const computed = store(world, Computed);
 	const playback = store(world, Playback);
 
-	await warmupAssets(world);
+	try {
+		await warmupAssets(world);
+		const sourceError = getEntityTree(world, scene)
+			.map(entity => entity.get(SourceError)?.value)
+			.find(Boolean);
+		if (sourceError) throw asExportError('decode', sourceError);
+	} catch (error) {
+		throw asExportError('decode', error);
+	}
 
 	const frameRate = world.get(FrameRate)?.value ?? 30;
 	const sceneWidth = computed.width[sceneId]!;
@@ -145,7 +153,12 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 	audioPlayback.timelineOffsetInSeconds[sceneId] = playheadStartSeconds;
 
 	// Set up mediabunny output
-	const buffer = await TargetBuffer.create(config.target);
+	let buffer: TargetBuffer;
+	try {
+		buffer = await TargetBuffer.create(config.target);
+	} catch (error) {
+		throw asExportError('write', error);
+	}
 	const format = await createOutputFormat(buffer, config.format);
 	const output = new Output({ format, target: buffer.target });
 
@@ -245,8 +258,10 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 
 	const render = async (): Promise<ExportResult> => {
 		let audioRenderingCompleted: Promise<AudioBuffer> | null = null;
+		let stage: ExportStage = 'write';
 		try {
 			await output.start();
+			stage = 'encode';
 			const start = performance.now();
 			const startTime = start;
 			const totalFrames = Math.floor(duration * frameRate);
@@ -261,7 +276,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 
 			for (let frame = 0; frame < totalFrames; frame++) {
 				if (canceled) {
-					await output.cancel();
+					await buffer.cancel(); await output.cancel();
 					Atomics.store(sharedUint32Array, 0, 2 ** 31 - 1);
 					return { type: 'canceled' };
 				}
@@ -277,9 +292,13 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 				world.set(Time, { delta: frameDuration * 1000, now: time.now + frameDuration * 1000 });
 
 				{
+					stage = 'decode';
 					assetSystem(world);
+					stage = 'render';
 					playbackSystem(world);
+					stage = 'decode';
 					await resolverSystem(world);
+					stage = 'render';
 					motionSystem(world);
 					syncAudioBuses(world, timestamp);
 					// May be changed by a system
@@ -292,6 +311,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 					renderSystem(world);
 				}
 
+				stage = 'encode';
 				if (videoEnabled) {
 					await videoSource.add(timestamp, frameDuration);
 				}
@@ -343,7 +363,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 				} else {
 					const rendered = await audioRenderingCompleted;
 					for (let offset = 0; offset < rendered.length; offset += 16384) {
-						if (canceled) { await output.cancel(); return { type: 'canceled' }; }
+						if (canceled) { await buffer.cancel(); await output.cancel(); return { type: 'canceled' }; }
 						const count = Math.min(16384, rendered.length - offset);
 						const data = new Float32Array(count * numberOfChannels);
 						for (let channel = 0; channel < numberOfChannels; channel++)
@@ -356,6 +376,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 
 			console.info('Finalizing file');
 
+			stage = 'write';
 			await output.finalize();
 
 			console.info('Export complete');
@@ -365,9 +386,12 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 				data: await buffer.close(containerFormat),
 			};
 		} catch (e) {
+			const error = asExportError(stage, e);
+			await buffer.cancel().catch(() => {});
+			await output.cancel().catch(() => {});
 			return {
 				type: 'error',
-				error: e instanceof Error ? e : new Error('Unknown error'),
+				error,
 			};
 		} finally {
 			// The world, its canvas and the decoders opened in it are the

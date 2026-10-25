@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from 'node:fs/promises';
+await import('./test-export-target.mjs');
 const port = 5562;
 const server = spawn(
   process.execPath,
@@ -23,6 +24,10 @@ try {
   }
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage();
+  if (process.env.PURECUT_TEST_VERBOSE) {
+    page.on('console', message => console.log('BROWSER', message.type(), message.text()));
+    page.on('framenavigated', frame => { if (frame === page.mainFrame()) console.log('NAVIGATED', frame.url()); });
+  }
   // Remote caption-preset font hosts are blocked so the checks prove text
   // still draws (in a fallback face) offline.
   const blockedFontRequests = [];
@@ -214,6 +219,8 @@ try {
       check(ownsKeyboardEvent(handledShortcut), 'handled export shortcut cannot trigger twice');
       const { bridge } = await import(bridgeUrl);
       await (await import('/scripts/browser-export-review-check.tsx')).checkExportReview(reviewVideo, bridge, () => window.inspectExportConfirmation());
+      await (await import('/scripts/browser-export-recovery-check.tsx')).checkExportRecovery(bridge);
+      (await import('/scripts/browser-export-recap-check.tsx')).checkExportRecap();
       const originalCall = bridge.call;
       const originalFetch = window.fetch;
       const mediaUrl = URL.createObjectURL(new Blob([new Uint8Array([0, 1, 2, 255])], { type: 'video/mp4' }));
