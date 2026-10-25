@@ -156,7 +156,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     // A broken compiled project fails in createCapture, as a real export does.
     await rememberProjectBundle(projectId, `throw Error('Fixture render failure');`);
     let renderAttempts = 0;
-    engine.stop = () => { renderAttempts++; originalStop(); };
+    engine.stop = () => { renderAttempts++; originalStop.call(engine); };
     toast('Unrelated notice', { duration: Infinity });
     await api.exportScene(scene.entity, config);
     await expectFailure('render', 'Try the export again');
