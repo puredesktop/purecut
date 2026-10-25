@@ -2,7 +2,8 @@ import { chromium } from 'playwright'
 import { spawn, execFileSync } from 'node:child_process'
 import { writeFile, readFile, mkdir } from 'node:fs/promises'
 import assert from 'node:assert/strict'
-const port = 5571,
+const port = Number(process.env.SPEECH_TEST_PORT) || 5571,
+  out = process.env.SPEECH_VERIFICATION_DIR || '../../../speech-verification',
   server = spawn(
     process.execPath,
     ['scripts/purecut-dev.mjs', '--port', String(port)],
@@ -12,8 +13,128 @@ let log = '',
   browser
 server.stdout.on('data', d => (log += d))
 server.stderr.on('data', d => (log += d))
+// What a review lists must be exactly what Apply removes: compare the shown
+// ranges and total with the proposal's cuts, then with the applied scene.
+async function reviewShows(page) {
+  return page.evaluate(async () => {
+    const m = await import('/purecut/speech/model.ts')
+    const cuts = window.speechFixture.reviewCuts()
+    return {
+      cuts,
+      shown: [...document.querySelectorAll('[data-cut-range]')].map(e => e.textContent.replace(/\s+/g, ' ').trim()),
+      expected: cuts.map(c => `${m.formatTimestamp(c.start)} – ${m.formatTimestamp(c.end)} · ${m.formatSeconds(c.end - c.start)}`),
+      total: document.querySelector('[data-review-total]')?.textContent,
+      removed: m.formatSeconds(m.removedSeconds(cuts)),
+    }
+  })
+}
+const sceneEnd = state => Math.max(...state.units.map(u => u.end))
+async function reviewChecks(page) {
+  const fixture = () => page.evaluate(() => window.speechFixture.state())
+  const original = await fixture()
+  // A direct selection says where it is and how long it is before Delete.
+  await page.locator('[data-speech-key]').filter({ hasText: /^um$/ }).click()
+  await page.getByText('1 word · 0:01.00 – 0:01.50 · 0.50 s', { exact: true }).waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByText('Clean up speech', { exact: true }).click()
+  await page.getByText('Silences longer than 1.50 s are shortened so about 0.30 s', { exact: false }).waitFor()
+  await page.getByRole('button', { name: 'Review 1 filler suggestions', exact: true }).click()
+  const review = page.getByRole('group', { name: 'Review speech edit' })
+  await review.getByText('1 cut · 0.50 s removed', { exact: true }).waitFor()
+  let shown = await reviewShows(page)
+  assert.deepEqual(shown.cuts, [{ start: 1, end: 1.5 }])
+  assert.deepEqual(shown.shown, shown.expected)
+  assert.equal(shown.total, `1 cut · ${shown.removed} removed`)
+  assert.equal(await review.locator('del').textContent(), 'um')
+  assert.match(await review.locator('.cut-review-context').textContent(), /Hello\s+um\s+world\./)
+  await review.getByRole('button', { name: 'Go to 0:01.00' }).waitFor()
+  assert.equal((await fixture()).source, original.source, 'opening a review changes nothing')
+  // The existing boundary editor drives the same list and total.
+  await review.getByText('Adjust', { exact: true }).click()
+  const end = review.getByRole('spinbutton', { name: 'Cut 1 end seconds' })
+  await end.fill('1.6')
+  await end.press('Tab')
+  await review.getByText('1 cut · 0.60 s removed', { exact: true }).waitFor()
+  shown = await reviewShows(page)
+  assert.deepEqual(shown.cuts, [{ start: 1, end: 1.6 }])
+  assert.deepEqual(shown.shown, shown.expected)
+  // Moving a boundary into a word makes the review say a fragment stays.
+  const start = review.getByRole('spinbutton', { name: 'Cut 1 start seconds' })
+  await start.fill('1.2')
+  await start.press('Tab')
+  await review.getByText('This cuts into “um” rather than between words.', { exact: false }).waitFor()
+  assert.equal(await review.locator('del').textContent(), 'part of “um”')
+  await start.fill('1')
+  await start.press('Tab')
+  await review.getByText('1 cut · 0.60 s removed', { exact: true }).waitFor()
+  assert.equal(await review.locator('.cut-review-warning').count(), 0)
+  await end.fill('0.5')
+  await end.press('Tab')
+  await review.getByText('Cut 1 must end after it starts.', { exact: false }).waitFor()
+  assert.deepEqual((await reviewShows(page)).cuts, [{ start: 1, end: 1.6 }])
+  await review.getByRole('button', { name: 'Apply edit', exact: true }).click()
+  await page.waitForFunction(() => window.speechFixture.state().units?.length === 2)
+  let applied = await fixture()
+  assert.deepEqual(applied.units.map(u => [u.start, u.end, u.sourceIn].map(n => +n.toFixed(9))), [[0, 1, 0], [1, 5.4, 1.6]],
+    'the applied cut is the displayed 0:01.00 – 0:01.60')
+  await page.evaluate(() => window.speechFixture.undo())
+  await page.waitForFunction(() => window.speechFixture.state().units?.length === 1)
+  // Pause rule in words before analysis; invalid settings say why.
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
+  if (!(await page.locator('details.cut-cleanup').evaluate(d => d.open)))
+    await page.getByText('Clean up speech', { exact: true }).click()
+  const minimum = page.getByRole('spinbutton', { name: 'Minimum pause seconds' })
+  const retain = page.getByRole('spinbutton', { name: 'Retained pause seconds' })
+  await minimum.fill('0.5'); await minimum.press('Tab')
+  await retain.fill('0.5'); await retain.press('Tab')
+  await page.getByText('The pause you keep must be shorter than 0.50 s.', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Review pauses' }).isDisabled(), true)
+  await retain.fill('0.1'); await retain.press('Tab')
+  await page.getByText('Silences longer than 0.50 s are shortened so about 0.10 s', { exact: false }).waitFor()
+  await page.getByRole('button', { name: 'Review pauses' }).click()
+  await review.getByText(/gaps? · .* saved/).waitFor()
+  shown = await reviewShows(page)
+  assert.ok(shown.cuts.length >= 1)
+  assert.deepEqual(shown.shown, shown.expected)
+  assert.equal(shown.total, `${shown.cuts.length} ${shown.cuts.length === 1 ? 'gap' : 'gaps'} · ${shown.removed} saved`)
+  await review.locator('.cut-review-gap').first().waitFor()
+  // The waveform found this gap, so it may be called silence.
+  assert.match(await review.locator('.cut-review-gap').first().textContent(), /of silence$/)
+  await review.getByText('Silences longer than 0.50 s', { exact: false }).waitFor()
+  for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [375, 'light'], [375, 'dark']]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.evaluate(t => document.documentElement.setAttribute('data-kb-theme', t), theme)
+    await review.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `../../../speech-verification/review-${width}-${theme}.png` })
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+  }
+  await page.evaluate(() => document.documentElement.setAttribute('data-kb-theme', 'light'))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const before = await fixture()
+  await review.getByRole('button', { name: 'Apply edit', exact: true }).click()
+  await page.waitForFunction(() => window.speechFixture.state().units?.length > 1)
+  applied = await fixture()
+  const removed = shown.cuts.reduce((n, c) => n + c.end - c.start, 0)
+  assert.ok(Math.abs(sceneEnd(before) - sceneEnd(applied) - removed) < 1e-9, 'scene shrinks by the displayed total')
+  assert.deepEqual(applied.units.slice(1).map(u => +u.sourceIn.toFixed(9)), shown.cuts.map(c => +c.end.toFixed(9)),
+    'each kept part resumes exactly where a displayed cut ends')
+  await page.evaluate(() => window.speechFixture.undo())
+  await page.waitForFunction(() => window.speechFixture.state().units?.length === 1)
+  // Discard leaves everything as it was.
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
+  if (!(await page.locator('details.cut-cleanup').evaluate(d => d.open)))
+    await page.getByText('Clean up speech', { exact: true }).click()
+  await page.getByRole('button', { name: 'Review 1 filler suggestions', exact: true }).click()
+  await review.getByRole('button', { name: 'Discard', exact: true }).click()
+  assert.equal((await fixture()).source, original.source)
+  assert.equal((await fixture()).proposal, false)
+  await page.keyboard.press('Escape')
+}
+
 try {
-  await mkdir('../../../speech-verification', { recursive: true })
+  await mkdir(out, { recursive: true })
   execFileSync('ffmpeg', [
     '-y',
     '-v',
@@ -36,7 +157,7 @@ try {
     'yuv420p',
     '-c:a',
     'aac',
-    '../../../speech-verification/source.mp4',
+    `${out}/source.mp4`,
   ])
   for (let i = 0; ; i++) {
     try {
@@ -45,7 +166,9 @@ try {
     if (i > 120 || server.exitCode !== null) throw Error(log)
     await new Promise(r => setTimeout(r, 250))
   }
-  browser = await chromium.launch({ channel: 'chrome', headless: true })
+  // SPEECH_TEST_BROWSER=<path> runs another Chromium build instead of Chrome.
+  const executablePath = process.env.SPEECH_TEST_BROWSER
+  browser = await chromium.launch({ ...(executablePath ? { executablePath } : { channel: 'chrome' }), headless: true })
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
   const errors = []
   page.on('pageerror', e => {
@@ -61,7 +184,7 @@ try {
   await page.route('**/speech-media.mp4', async route =>
     route.fulfill({
       contentType: 'video/mp4',
-      body: await readFile('../../../speech-verification/source.mp4'),
+      body: await readFile(`${out}/source.mp4`),
     }),
   )
   await page.goto(`http://127.0.0.1:${port}/speech-check`)
@@ -71,29 +194,127 @@ try {
       document.getElementById('fixture'),
     )
   })
-  await page
-    .getByText('Configure an audio transcription provider', { exact: false })
-    .waitFor()
-  assert.equal(
-    await page
-      .getByRole('button', { name: 'Transcribe recording', exact: true })
-      .count(),
-    0,
-  )
-  assert.equal(
-    (await page.evaluate(() => window.speechFixture.state())).started,
-    0,
-  )
-  await page.evaluate(() => window.speechFixture.configure())
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  // Every status the panel can show, without a transcript yet. Reading and
+  // showing status must never start a job or upload anything.
+  const fixtureState = () => page.evaluate(() => window.speechFixture.state())
+  const panel = page.getByRole('region', { name: 'Speech editing' })
   const transcribe = page.getByRole('button', {
     name: 'Transcribe recording',
     exact: true,
   })
+  const checkAgain = panel.getByRole('button', { name: 'Check again', exact: true })
+  const shots = async name => {
+    await mkdir(out, { recursive: true })
+    for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [375, 'light'], [375, 'dark']]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.evaluate(t => (document.documentElement.dataset.kbTheme = t), theme)
+      await page.screenshot({ path: `${out}/status-${name}-${width}-${theme}.png` })
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+        `${name} scrolls sideways at ${width}px`,
+      )
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.evaluate(() => (document.documentElement.dataset.kbTheme = 'light'))
+  }
+  const showsOnly = async (text, name) => {
+    await panel.getByText(text, { exact: false }).waitFor()
+    assert.equal(await transcribe.count(), 0, `${name}: no Transcribe button`)
+    assert.equal((await fixtureState()).started, 0, `${name}: nothing was sent`)
+  }
+  await showsOnly('Connect a transcription service in PureDesktop Settings → Speech', 'no provider')
+  await panel.getByText('Transcribe this recording', { exact: true }).waitFor()
+  await panel.getByText('No speech service', { exact: false }).waitFor()
+  await shots('no-provider')
+
+  await page.evaluate(() => window.speechFixture.setService({ available: false, reason: 'missing-key' }))
+  await checkAgain.click()
+  await showsOnly('AssemblyAI needs an API key', 'missing key')
+
+  await page.evaluate(() =>
+    window.speechFixture.setService({ id: 'whisper', label: 'Whisper on this computer', kind: 'local', available: false, reason: 'runtime-unreachable' }))
+  await checkAgain.click()
+  await showsOnly('Whisper on this computer isn’t responding on this computer', 'unreachable')
+
+  await page.evaluate(() => {
+    window.speechFixture.configure()
+    window.speechFixture.setSettings({ speechEditingEnabled: false })
+  })
+  await checkAgain.click()
+  await showsOnly('Transcription is turned off', 'disabled')
+  await shots('disabled')
+  await page.evaluate(() => window.speechFixture.setSettings({}))
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await transcribe.waitFor()
+  // The cloud-consent gate is unchanged.
   assert.equal(await transcribe.isDisabled(), true)
   await page
     .getByRole('checkbox', { name: 'Allow this recording', exact: false })
+    .check()
+  await shots('ready')
+
+  // A running job: each phase says what is happening, then cancel.
+  const job = panel.locator('.cut-transcription-job')
+  await page.evaluate(() => window.speechFixture.setJobs([{ state: 'queued' }]))
+  await transcribe.click()
+  await job.getByText('Waiting to start', { exact: true }).waitFor()
+  assert.equal((await fixtureState()).started, 1)
+  await shots('waiting')
+  await page.evaluate(() => window.speechFixture.setJobs([{ state: 'running', progress: 0.02 }]))
+  await job.getByText('Uploading the recording', { exact: true }).waitFor()
+  await shots('uploading')
+  await page.evaluate(() => window.speechFixture.setJobs([{ state: 'running', progress: 0.5 }]))
+  await job.getByText('Transcribing', { exact: true }).waitFor()
+  assert.equal(await job.getByText('%', { exact: false }).count(), 0, 'no invented percentage for a cloud service')
+  assert.equal(await job.getByRole('progressbar').count(), 0)
+  await shots('processing')
+  await job.getByRole('button', { name: 'Cancel transcription', exact: true }).click()
+  await panel.getByText('Transcription cancelled. No transcript was saved.', { exact: true }).waitFor()
+  assert.equal((await fixtureState()).cancelled, 1, 'cancelling stops the host job')
+  await transcribe.waitFor()
+  assert.equal((await fixtureState()).started, 1, 'cancelled status does not start another job')
+  await shots('cancelled')
+
+  // Today’s limit: refused, then offered again once the limit is raised.
+  await page.evaluate(() => window.speechFixture.setJobs([{ state: 'done', result: { status: 'skipped', reason: 'daily-cap' } }]))
+  await transcribe.click()
+  await panel.getByRole('alert').getByText('Today’s limit of 20 transcriptions is used up.', { exact: false }).waitFor()
+  assert.equal(await transcribe.count(), 0, 'no retry while the limit stands')
+  await checkAgain.click()
+  await panel.getByRole('alert').waitFor()
+  assert.equal(await transcribe.count(), 0, 'checking again under the same limit still refuses')
+  await page.evaluate(() => window.speechFixture.setSettings({ diarizationDailyCap: 40 }))
+  await checkAgain.click()
+  await transcribe.waitFor()
+  assert.equal(await panel.getByRole('alert').count(), 0, 'a raised limit clears the refusal')
+  assert.equal((await fixtureState()).started, 2, 'checking eligibility sends nothing')
+
+  // A failure: says what happened and why sending again today won’t work.
+  await page.evaluate(() => window.speechFixture.setJobs([{ state: 'failed', result: { status: 'skipped', reason: 'unavailable' } }]))
+  await transcribe.click()
+  const failure = panel.getByRole('alert')
+  await failure.getByText('Transcription didn’t finish', { exact: true }).waitFor()
+  await failure.getByText('AssemblyAI could not transcribe this recording.', { exact: true }).waitFor()
+  await failure.getByText('can take this recording again tomorrow', { exact: false }).waitFor()
+  assert.equal(await transcribe.count(), 0, 'no retry the host would refuse')
+  assert.equal(await panel.getByRole('button', { name: 'Try again', exact: true }).count(), 0)
+  await shots('failed')
+  await checkAgain.click()
+  await failure.getByText('Transcription didn’t finish', { exact: true }).waitFor()
+  assert.equal((await fixtureState()).started, 3, 'checking again after a failure sends nothing')
+
+  // Another service clears it; this one completes.
+  await page.evaluate(() => {
+    window.speechFixture.setService({ id: 'assemblyai-eu', label: 'AssemblyAI (EU)', available: true })
+    window.speechFixture.setJobs(null)
+  })
+  await checkAgain.click()
+  await transcribe.waitFor()
+  assert.equal(await panel.getByRole('alert').count(), 0)
+  assert.equal(await transcribe.isDisabled(), true, 'consent is asked again for another service')
+  await page
+    .getByRole('checkbox', { name: 'Allow this recording to be uploaded to AssemblyAI (EU)', exact: false })
     .check()
   await transcribe.click()
   await page.locator('[data-speech-key]').filter({ hasText: /^um$/ }).waitFor()
@@ -125,6 +346,7 @@ try {
   await page.keyboard.press('Control+z')
   await page.locator('[data-speech-key]').filter({ hasText: /^Hello$/ }).waitFor()
   await page.locator('[data-speech-key]').filter({ hasText: /^um$/ }).waitFor()
+  await reviewChecks(page)
   await page.evaluate(() => window.speechFixture.agentSpeechChecks())
   const captionReview = page.getByRole('group', {name:'Review speech edit'})
   await captionReview.getByText('Generate captions from the saved transcript.', {exact:false}).waitFor()
@@ -138,11 +360,50 @@ try {
   assert.equal(checks.children, 4)
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
-  await mkdir('../../../speech-verification', { recursive: true })
+  // A saved transcript keeps working when the service goes away.
+  const startedWithTranscript = (await fixtureState()).started
+  await page.evaluate(() => window.speechFixture.setService({ available: false, reason: 'missing-key' }))
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  const note = panel.getByRole('note')
+  await note.waitFor()
+  assert.match(await note.textContent(), /^New transcription is unavailable: AssemblyAI needs an API key\. This transcript, cleanup, captions and search keep working\.$/)
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
+  await page.waitForFunction(() => {
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent === 'Generate captions')
+    return button && !button.closest('fieldset')?.disabled
+  })
+  await page.getByRole('textbox', { name: 'Find words or a topic' }).fill('world')
+  await panel.getByRole('button', { name: /world/ }).first().waitFor()
+  await shots('transcript-service-unavailable')
+  await page.getByRole('textbox', { name: 'Find words or a topic' }).fill('')
+  assert.equal((await fixtureState()).started, startedWithTranscript, 'the note sends nothing')
+  await page.evaluate(() => window.speechFixture.setService({ id: 'assemblyai-eu', label: 'AssemblyAI (EU)', available: true }))
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
+  assert.equal(await panel.getByRole('note').count(), 0)
+  // A saved transcript that cannot be read says so, offers a way back and sends nothing.
+  const startedBeforeDamage = (await fixtureState()).started
+  const checkScene = panel.getByRole('button', { name: 'Check scene again', exact: true })
+  for (const kind of ['malformed', 'unreadable']) {
+    await page.evaluate(k => window.speechFixture.breakTranscript(k), kind)
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await panel.getByText('The saved transcript couldn’t be opened', { exact: true }).waitFor()
+    await panel.getByText('It has not been changed or replaced.', { exact: false }).waitFor()
+    await checkScene.waitFor()
+    assert.equal(await panel.getByText('Looking at this scene…').count(), 0, `${kind}: not left looking busy`)
+    assert.equal(await transcribe.count(), 0)
+    await shots(`transcript-${kind}`)
+  }
+  await page.getByText('Permission denied', { exact: false }).waitFor()
+  assert.equal((await fixtureState()).started, startedBeforeDamage, 'a damaged transcript sends nothing')
+  await page.evaluate(() => window.speechFixture.breakTranscript(null))
+  await checkScene.click()
+  await page.locator('[data-speech-key]').filter({ hasText: /^Next$/ }).waitFor()
+  await mkdir(out, { recursive: true })
   for (const width of [1440, 640, 375]) {
     await page.setViewportSize({ width, height: 900 })
     await page.screenshot({
-      path: `../../../speech-verification/transcript-${width}.png`,
+      path: `${out}/transcript-${width}.png`,
     })
     assert.equal(
       await page.evaluate(
@@ -154,7 +415,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 })
   const exported = await page.evaluate(() => window.speechFixture.exportAudio())
   await writeFile(
-    '../../../speech-verification/edited.webm',
+    `${out}/edited.webm`,
     Buffer.from(exported.base64, 'base64'),
   )
   const probe = JSON.parse(
@@ -167,7 +428,7 @@ try {
         '-show_format',
         '-of',
         'json',
-        '../../../speech-verification/edited.webm',
+        `${out}/edited.webm`,
       ],
       { encoding: 'utf8' },
     ),
@@ -175,7 +436,7 @@ try {
   assert.ok(probe.streams.some(s => s.codec_type === 'audio'))
   assert.ok(probe.streams.some(s => s.codec_type === 'video'))
   assert.ok(Math.abs(Number(probe.format.duration) - 5.5) < 0.15)
-  const output = '../../../speech-verification/edited.webm'
+  const output = `${out}/edited.webm`
   const samples = execFileSync(
     'ffmpeg',
     [
@@ -246,6 +507,14 @@ try {
   await page.getByText('Editing recording only.', { exact: true }).waitFor()
   assert.equal((await page.evaluate(() => window.speechFixture.state())).started, uploadsBeforeOverride,
     'override must not upload media')
+  // Unsupported scene, then a scene with no recording left: neither uploads.
+  await page.evaluate(() => window.speechFixture.removeRecording())
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await panel.getByText('Start with a recording', { exact: true }).waitFor()
+  await panel.getByRole('button', { name: 'Check scene again', exact: true }).waitFor()
+  assert.equal(await transcribe.count(), 0)
+  assert.equal((await fixtureState()).started, uploadsBeforeOverride, 'no recording: nothing sent')
+  await shots('no-recording')
   await page.evaluate(() => window.speechFixture.dispose())
   assert.deepEqual(errors, [])
   console.log(

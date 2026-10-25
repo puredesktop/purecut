@@ -23,8 +23,24 @@ receives only normalized speaker labels and word timings. No request is started
 by opening a video, opening the panel, or by the drawer's read tools.
 
 Missing credentials, an unavailable service or disabling transcription never
-blocks normal editing. Existing saved transcripts remain usable offline. Refresh
-the panel after changing settings. The transcript follows timeline edits and undo automatically.
+blocks normal editing. Existing saved transcripts remain usable offline; the
+panel only notes quietly that new transcription is unavailable. The transcript
+follows timeline edits and undo automatically.
+
+The setup screen names each situation and its next step: no recording in the
+scene, a scene structure speech editing cannot cut, transcription turned off,
+no service, a missing key or a local service that is not responding (fix it in
+settings, then **Check again**). While a job runs it shows **Waiting to start**,
+**Uploading the recording** (cloud services) or **Transcribing**, with a
+percentage only when the provider measures one, and **Cancel transcription**.
+The host accepts a recording once a day per service, counting failed attempts
+but not cancelled ones, so after a failure the panel offers another service or
+tomorrow rather than a retry the host would refuse. **Check again** offers it
+again once the UTC day changes, or, after the daily limit, once the limit is
+raised. A saved transcript that cannot be read or is damaged is reported as
+such, with **Check scene again**, and is never replaced or re-requested. A finished transcript is
+saved even if the scene changed meanwhile, so it is never requested twice.
+Checking status never starts a job or uploads anything.
 
 ## Edit speech
 

@@ -130,6 +130,7 @@ export function validateTranscript(
 }
 const normalized = (s: string) =>
   s.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
+const isFiller = (s: string) => /^(um+|uh+|erm+|er|hmm+)$/.test(normalized(s))
 export function fillerSuggestions(words: TimelineWord[], repetitions = false) {
   const restarts = new Set<number>()
   if (repetitions) {
@@ -160,7 +161,7 @@ export function fillerSuggestions(words: TimelineWord[], repetitions = false) {
       }
   }
   return words.flatMap((w, i) => {
-    const filler = /^(um+|uh+|erm+|er|hmm+)$/.test(normalized(w.text))
+    const filler = isFiller(w.text)
     return filler || restarts.has(i)
       ? [{ ...w, reason: filler ? 'Filler' : 'Possible repetition or restart' }]
       : []
@@ -180,6 +181,91 @@ export function selectedPassages(
     previous = index
   })
   return result
+}
+/** Words whose middle falls inside one of the ranges: what a highlight keeps. */
+export function wordsInRanges<T extends Range>(words: T[], kept: Range[]): T[] {
+  return words.filter(w => {
+    const middle = (w.start + w.end) / 2
+    return kept.some(r => middle >= r.start && middle <= r.end)
+  })
+}
+export const SCENE_NAME_LIMIT = 80
+export const HIGHLIGHT_FALLBACK = 'Highlight'
+const shorten = (text: string, limit: number) => {
+  const chars = Array.from(text)
+  if (chars.length <= limit) return text
+  const cut = chars.slice(0, limit - 1).join(''), space = cut.lastIndexOf(' ')
+  return (space > limit / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.–—-]+$/u, '') + '…'
+}
+/**
+ * A scene name is one line of plain text: control and invisible characters
+ * become spaces, runs of space collapse, and it is at most `limit` characters.
+ * Anything that is not a string, or holds only space, is no name ('').
+ */
+export function cleanSceneName(raw: unknown, limit = SCENE_NAME_LIMIT): string {
+  if (typeof raw !== 'string') return ''
+  const text = raw
+    .normalize('NFC')
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  return shorten(text, limit)
+}
+/**
+ * The name a highlight is offered: the first words of what is said in it,
+ * quoted, so the scene reads as a moment of the recording and not as a copy
+ * of its source. Fillers, bracketed notes ([laughter]) and stray punctuation
+ * are left out; it stops at the end of the first sentence or after about
+ * `limit` characters. With no usable words it is "Highlight".
+ */
+export function highlightExcerpt(words: { text: string }[], limit = 40): string {
+  const tokens = words
+    .map(w => w.text.replace(/\[[^\]]*\]|\([^)]*\)/gu, ' ').trim())
+    .filter(text => text && !isFiller(text))
+    .map(text => ({
+      text: text.replace(/[^\p{L}\p{N}'’-]/gu, '').replace(/^[-'’]+|[-'’]+$/gu, ''),
+      ends: /[.!?]["'’”)]*$/u.test(text),
+    }))
+    .filter(token => token.text)
+  if (!tokens.length) return HIGHLIGHT_FALLBACK
+  let excerpt = '', complete = false
+  for (const [index, token] of tokens.entries()) {
+    const next = excerpt ? `${excerpt} ${token.text}` : token.text
+    if (excerpt && Array.from(next).length > limit) break
+    excerpt = next
+    if (index === tokens.length - 1 || (token.ends && index >= 2)) {
+      complete = true
+      break
+    }
+  }
+  excerpt = shorten(excerpt, limit)
+  if (!complete && !excerpt.endsWith('…')) excerpt += '…'
+  return `“${excerpt.charAt(0).toLocaleUpperCase()}${excerpt.slice(1)}”`
+}
+/** `name`, or `name 2`, `name 3`… when another scene is already called that (any case). */
+export function uniqueSceneName(name: string, taken: Iterable<string>): string {
+  const used = new Set(Array.from(taken, n => n.trim().toLocaleLowerCase()))
+  if (!used.has(name.toLocaleLowerCase())) return name
+  for (let n = 2; ; n++) {
+    const suffix = ` ${n}`
+    const candidate = shorten(name, SCENE_NAME_LIMIT - suffix.length) + suffix
+    if (!used.has(candidate.toLocaleLowerCase())) return candidate
+  }
+}
+/**
+ * The name a new highlight scene gets: what the person typed (or the agent
+ * sent), else the offered excerpt, else "Highlight"; never the name of a
+ * scene that already exists.
+ */
+export function highlightSceneName(
+  requested: unknown,
+  fallback: unknown,
+  taken: Iterable<string>,
+): string {
+  return uniqueSceneName(
+    cleanSceneName(requested) || cleanSceneName(fallback) || HIGHLIGHT_FALLBACK,
+    taken,
+  )
 }
 export function frameRanges(
   input: Range[],
@@ -211,6 +297,132 @@ export function listedCuts(cuts: Range[], limit = LISTED_CUTS) {
         }
       : {}),
   }
+}
+/** Seconds removed by a list of cuts; reviews and replies use this one sum. */
+export const removedSeconds = (cuts: Range[]) =>
+  cuts.reduce((n, r) => n + r.end - r.start, 0)
+/** Edited-timeline seconds as m:ss.cc, the precision a frame needs. */
+export function formatTimestamp(seconds: number) {
+  const hundredths = Math.round(Math.max(0, seconds) * 100)
+  const minutes = Math.floor(hundredths / 6000)
+  return `${minutes}:${((hundredths % 6000) / 100).toFixed(2).padStart(5, '0')}`
+}
+export const formatSeconds = (seconds: number) => `${seconds.toFixed(2)} s`
+/** A reviewed cut with the words either side, so a person can judge what it removes. */
+export type CutContext = Range & {
+  duration: number
+  before: TimelineWord[]
+  /** Words wholly inside the cut: nothing of them is left. */
+  removed: TimelineWord[]
+  /** Every other word the cut touches: a fragment of it stays audible. */
+  trimmed: TimelineWord[]
+  after: TimelineWord[]
+}
+function firstAtOrAfter(words: TimelineWord[], time: number) {
+  let lo = 0,
+    hi = words.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (words[mid].start < time) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+/** One entry per cut, in the cuts' own order and with their exact bounds. */
+export function cutContexts(
+  cuts: Range[],
+  words: TimelineWord[],
+  context = 4,
+): CutContext[] {
+  // Words are ordered by start, but timings may overlap, so ends are not
+  // ordered: a long word can reach past later, shorter ones. reach[i] is the
+  // latest end among words 0..i, which bounds how far back a cut can touch.
+  const reach: number[] = []
+  words.forEach((word, i) => {
+    reach[i] = Math.max(i ? reach[i - 1] : -Infinity, word.end)
+  })
+  return cuts.map(cut => {
+    const hi = firstAtOrAfter(words, cut.end - 0.001)
+    const removed: TimelineWord[] = [],
+      trimmed: TimelineWord[] = [],
+      before: TimelineWord[] = []
+    for (let i = hi - 1; i >= 0; i--) {
+      if (reach[i] <= cut.start + 0.001 && before.length >= context) break
+      const word = words[i]
+      const overlap =
+        Math.min(word.end, cut.end) - Math.max(word.start, cut.start)
+      if (overlap > 0.001) {
+        const whole = word.start >= cut.start - 0.001 && word.end <= cut.end + 0.001
+        ;(whole ? removed : trimmed).unshift(word)
+      } else if (before.length < context) before.unshift(word)
+    }
+    return {
+      start: cut.start,
+      end: cut.end,
+      duration: cut.end - cut.start,
+      before,
+      removed,
+      trimmed,
+      after: words.slice(hi, hi + context),
+    }
+  })
+}
+/**
+ * The note under a cut in the review, or null. Every word the cut only partly
+ * removes is named: a fragment of it stays audible.
+ */
+export function cutWarning(
+  item: CutContext,
+  content: CutContent | 'unknown',
+): { tone: 'warning' | 'caution'; text: string } | null {
+  const partly = `“${item.trimmed.map(w => w.text).join(' ')}”`
+  if (content === 'partial')
+    return { tone: 'warning', text: `This cuts into ${partly} rather than between words. Adjust the boundary or keep this section.` }
+  if (content === 'words' && item.trimmed.length)
+    return { tone: 'warning', text: `Also cuts into ${partly}, so part of it stays. Adjust the boundary if it sounds cut off.` }
+  if (content === 'untranscribed' || content === 'unknown')
+    return { tone: 'caution', text: 'Not checked against the audio. Listen before applying.' }
+  return null
+}
+/** Plain-language rule for pause cleanup, shown before any audio is analysed. */
+export function pauseRule(minimum: number, retain: number) {
+  if (!Number.isFinite(minimum) || minimum <= 0)
+    return { valid: false, text: 'Enter how long a pause must be before it is shortened.' }
+  if (!Number.isFinite(retain) || retain < 0 || retain >= minimum)
+    return { valid: false, text: `The pause you keep must be shorter than ${formatSeconds(minimum)}.` }
+  return {
+    valid: true,
+    text: `Silences longer than ${formatSeconds(minimum)} are shortened so about ${formatSeconds(retain)} of quiet remains. Shorter pauses stay as they are, and spoken words are never cut.`,
+  }
+}
+/** Waveform silences on the edited timeline, the same mapping pauseCuts uses. */
+export function timelineSilences(silences: Range[], clips: Clip[]): Range[] {
+  return ranges(
+    clips.flatMap(c =>
+      silences.flatMap(s => {
+        const start = Math.max(c.sourceIn, s.start),
+          end = Math.min(c.sourceIn + c.end - c.start, s.end)
+        return end > start
+          ? [{ start: c.start + start - c.sourceIn, end: c.start + end - c.sourceIn }]
+          : []
+      }),
+    ),
+  )
+}
+/**
+ * What a cut takes out, as far as the evidence goes. "silence" needs the
+ * waveform: a stretch with no transcribed words may still hold speech the
+ * transcript missed, so without silences it is only "untranscribed".
+ */
+export type CutContent = 'words' | 'partial' | 'silence' | 'untranscribed'
+export function cutContent(item: CutContext, silences?: Range[]): CutContent {
+  if (item.removed.length) return 'words'
+  if (item.trimmed.length) return 'partial'
+  return silences?.some(
+    s => s.start <= item.start + 1e-6 && s.end >= item.end - 1e-6,
+  )
+    ? 'silence'
+    : 'untranscribed'
 }
 export function pauseCuts(
   silences: Range[],

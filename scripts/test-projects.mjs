@@ -114,6 +114,7 @@ try {
       (await import('/scripts/browser-timeline-view-check.ts')).checkTimelineView();
       await (await import('/scripts/browser-lock-check.ts')).checkLocks();
       await (await import('/scripts/browser-relink-check.ts')).checkRelinkFiles();
+      await (await import('/scripts/browser-media-import-check.ts')).checkMediaImport();
       await (await import('/scripts/browser-media-safety-check.tsx')).checkMediaSafety();
       await (await import('/scripts/browser-library-load-check.ts')).checkLibraryLoad();
       await (await import('/scripts/browser-cache-check.ts')).checkCacheWrites();
