@@ -10,6 +10,8 @@ export type ContainerFormat = 'mp4' | 'webm' | 'ogg' | 'mov';
 // Minimal FileSystemFileHandle-shaped target
 export interface WritableFileTarget {
 	createWritable(): Promise<WritableStream<StreamTargetChunk>>;
+	/** Aborts and removes the partial output even after its stream has failed. */
+	dispose?(): Promise<void>;
 }
 
 export type EncoderProgress = {

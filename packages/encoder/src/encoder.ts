@@ -276,7 +276,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 
 			for (let frame = 0; frame < totalFrames; frame++) {
 				if (canceled) {
-					buffer.cancel(); await output.cancel();
+					await buffer.cancel(); await output.cancel();
 					Atomics.store(sharedUint32Array, 0, 2 ** 31 - 1);
 					return { type: 'canceled' };
 				}
@@ -363,7 +363,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 				} else {
 					const rendered = await audioRenderingCompleted;
 					for (let offset = 0; offset < rendered.length; offset += 16384) {
-						if (canceled) { buffer.cancel(); await output.cancel(); return { type: 'canceled' }; }
+						if (canceled) { await buffer.cancel(); await output.cancel(); return { type: 'canceled' }; }
 						const count = Math.min(16384, rendered.length - offset);
 						const data = new Float32Array(count * numberOfChannels);
 						for (let channel = 0; channel < numberOfChannels; channel++)
@@ -387,7 +387,7 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 			};
 		} catch (e) {
 			const error = asExportError(stage, e);
-			buffer.cancel();
+			await buffer.cancel().catch(() => {});
 			await output.cancel().catch(() => {});
 			return {
 				type: 'error',

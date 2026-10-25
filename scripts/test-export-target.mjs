@@ -12,8 +12,8 @@ try {
     bundle: true, platform: 'node', format: 'esm', external: ['mediabunny'], logLevel: 'error',
   });
   const { TargetBuffer } = await import(`${out}/buffer.mjs`);
-  const create = async sink => {
-    const buffer = await TargetBuffer.create({ createWritable: async () => new WritableStream(sink) }, 1024);
+  const create = async (sink, dispose) => {
+    const buffer = await TargetBuffer.create({ createWritable: async () => new WritableStream(sink), dispose }, 1024);
     const output = new Output({ format: new WebMOutputFormat(), target: buffer.target });
     const source = new EncodedVideoPacketSource('vp8');
     output.addVideoTrack(source);
@@ -28,19 +28,20 @@ try {
 
   let writes = 0, failedAborts = 0;
   const diskFull = Error('disk full');
-  const failed = await create({ write() { if (++writes === 2) throw diskFull; }, abort() { failedAborts++; } });
+  const failed = await create({ write() { if (++writes === 2) throw diskFull; } }, async () => { failedAborts++; });
   await assert.rejects(async () => {
     for (let frame = 0; frame < 24; frame++) await add(failed.source, frame);
   }, error => isWriteError(error) && error.cause === diskFull);
   assert.equal(writes, 2, 'a chunk succeeds before a write fails during packet addition, without finalize');
-  failed.buffer.cancel();
-  await failed.output.cancel();
+  await failed.buffer.cancel();
+  // The failed stream cannot be closed, but cancel must still abort its file.
+  await failed.output.cancel().catch(() => {});
   assert.equal(failedAborts, 1, 'a failed output aborts its writable instead of leaving it open');
 
   let closes = 0, aborts = 0;
-  const canceled = await create({ write() {}, close() { closes++; }, abort() { aborts++; } });
+  const canceled = await create({ write() {}, close() { closes++; } }, async () => { aborts++; });
   await add(canceled.source, 0);
-  canceled.buffer.cancel();
+  await canceled.buffer.cancel();
   await canceled.output.cancel();
   assert.equal(aborts, 1, 'cancel aborts the file instead of saving the partial output');
   assert.equal(closes, 0);
