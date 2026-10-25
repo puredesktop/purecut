@@ -63,9 +63,26 @@ works through the normal `pure-app` protocol.
 
 ## Known limits and follow-up qualification
 
-- The binary bridge uses complete files: 128 MB per media import/export. OPFS
-  staging does not make the final bridge transfer streaming. Long exports and
-  large audio buffers need separate memory/performance qualification.
+- On desktop hosts with `fs.binaryTransfer`, media writes use the existing
+  bounded 4 MB bridge helper. The app's 128 MB OPFS staging cap is removed.
+  OPFS retains positioned encoding writes; publication releases the project
+  I/O lock so source reads and autosave can continue. Cancellation is checked
+  between chunks, before atomic commit starts. If a save completes before
+  cancellation takes effect, it remains a successful export and is recorded.
+- Startup and pre-write cleanup sweep abandoned `cut-<uuid>` OPFS files.
+  Per-export Web Locks protect live exports in other tabs, including while
+  publication is in progress. Cleanup failures leave files for a later sweep
+  and do not replace the original write error. Unavailable OPFS or a failed
+  sweep does not prevent the editor from opening.
+- PureCloud requires matching PureServer `fs.binaryTransfer` support. This
+  app change does not establish hosted availability. Hosted support remains
+  pending coordinated server delivery and qualification.
+- `npm run test:purecut:large-media` checks 129 MB storage with file-backed
+  OPFS adapters, including byte preservation, seek/reopen, cancellation,
+  cleanup and project-lock responsiveness. Setting `PURECUT_TEST_SERVER` to
+  a compatible server checkout runs the same app helper through the actual
+  server bridge handler and atomic writer. These storage checks do not prove
+  real desktop codec/export/playback behavior; desktop qualification is pending.
 - Browser JSX/TypeScript compilation is lazy-loaded but is a large bundle.
 - One `index.tsx` entry per package; no multi-file source editor. No automatic
   external filesystem watching, project duplication or project deletion UI.
