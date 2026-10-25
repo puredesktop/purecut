@@ -125,13 +125,14 @@ export async function renderScene(
     cancelActive = () => { encoder.cancel(); cancelTarget(); };
     if (cancelled) { encoder.cancel(); cancelTarget(); }
     const result = await encoder.render();
-    // Publication can reject with AbortError (including while queued), or the
-    // encoder can wrap it in its error result. Neither is an export failure.
-    if (cancelled || (result.type === 'error' && result.error.name === 'AbortError'))
+    // Success means publication won the race: a late Cancel cannot undo the
+    // atomic commit. Earlier cancellation uses our flag, since the editor
+    // transport carries failures as text and does not preserve error names.
+    if (result.type !== 'success' && cancelled)
       return { type: 'canceled' };
     return { ...result, sourceHash: capture.sourceHash };
   } catch (error) {
-    if (cancelled || (error as Error).name === 'AbortError') return { type: 'canceled' };
+    if (cancelled) return { type: 'canceled' };
     throw error;
   } finally {
     await aborting;

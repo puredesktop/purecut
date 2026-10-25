@@ -67,7 +67,8 @@ works through the normal `pure-app` protocol.
   bounded 4 MB bridge helper. The app's 128 MB OPFS staging cap is removed.
   OPFS retains positioned encoding writes; publication releases the project
   I/O lock so source reads and autosave can continue. Cancellation is checked
-  between chunks, before atomic commit starts.
+  between chunks, before atomic commit starts. If a save completes before
+  cancellation takes effect, it remains a successful export and is recorded.
 - Startup and pre-write cleanup sweep abandoned `cut-<uuid>` OPFS files.
   Per-export Web Locks protect live exports in other tabs, including while
   publication is in progress. Cleanup failures leave files for a later sweep

@@ -215,6 +215,7 @@ test('large storage, cross-tab cleanup, responsive project lock and cancellable 
             try {
               await writer.write({ type: 'write', position: 0, data: chunk });
               await writer.close(); // Same finalization boundary as the real encoder.
+              await globalThis.__purecutRenderTest.afterClose?.();
               return { type: 'success' };
             } catch (error) { return { type: 'error', error }; }
           },
@@ -301,6 +302,42 @@ test('large storage, cross-tab cleanup, responsive project lock and cancellable 
     assert.equal(otherTab.streams.size, 0);
     assert.deepEqual(await readdir(opfs), []);
     globalThis.__purecutRenderTest.encoder = makeEncoder;
+
+    // Commit has already published the file, but its reply has not reached
+    // the encoder yet. Cancel loses this race and must preserve success.
+    let releaseCommit, enteredCommit;
+    const commitGate = new Promise(resolve => { releaseCommit = resolve; });
+    const committed = new Promise(resolve => { enteredCommit = resolve; });
+    bridge.call = async (method, args) => {
+      const reply = await backend(method, args);
+      if (args[0].action === 'commit') { enteredCommit(); await commitGate; }
+      return reply;
+    };
+    const lateCancel = renderScene(engine, { scene: {}, target: new ElectronWritableFileHandle(path) });
+    await committed;
+    const published = await readFile(hostPath(path));
+    assert.equal(published.length, chunk.length);
+    assert.ok(published.every(byte => byte === 53));
+    cancelRender();
+    releaseCommit();
+    const saved = await lateCancel;
+    assert.equal(saved.type, 'success');
+    assert.equal(saved.sourceHash, 'revision'); // Retained for export history.
+    assert.deepEqual(await readFile(hostPath(path)), published);
+    assert.equal(renderOverlay(), null);
+    assert.equal(otherTab.streams.size, 0);
+    assert.deepEqual(await readdir(opfs), []);
+    bridge.call = backend;
+
+    // Also cover the gap after close acknowledges success but before the
+    // encoder resolves: there is no longer an open handle to abort here.
+    globalThis.__purecutRenderTest.afterClose = () => { cancelRender(); };
+    const afterClose = await renderScene(engine, { scene: {}, target: new ElectronWritableFileHandle(path) });
+    assert.equal(afterClose.type, 'success');
+    assert.equal(afterClose.sourceHash, 'revision');
+    assert.deepEqual(await readFile(hostPath(path)), published);
+    assert.equal(renderOverlay(), null);
+    delete globalThis.__purecutRenderTest.afterClose;
 
     // Deletion failures must not mask quota/write errors and are swept later.
     const failed = await otherTab.call('file:write-open', { path });
