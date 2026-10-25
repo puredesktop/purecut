@@ -39,6 +39,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
   let historyVersion = 0;
   let failWrites = false;
   let failChunks = false;
+  let failClose = false;
   let writeAttempts = 0;
   let chunkAttempts = 0;
   let videoFramesAdded = 0;
@@ -81,7 +82,10 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
       if (failChunks && chunkAttempts > 1) throw Error('Fixture destination filled during export');
       return {};
     }
-    if (channel === MAIN_CHANNELS.FILE_WRITE_CLOSE) return {};
+    if (channel === MAIN_CHANNELS.FILE_WRITE_CLOSE) {
+      if (failClose) throw Error('Fixture destination failed while closing');
+      return {};
+    }
     if (channel === MAIN_CHANNELS.FILE_WRITE_ABORT) { aborts++; return {}; }
     throw Error(`Unexpected export main call: ${channel}`);
   }) as typeof mainBridge.call;
@@ -240,7 +244,16 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     const beforeCancelAborts = aborts;
     cancelRender();
     await pending;
-    check(aborts === beforeCancelAborts + 1, `a cancelled export must dispose its partial file (aborts ${beforeCancelAborts} -> ${aborts})`);
+    check(aborts === beforeCancelAborts + 1, `a cancelled export must dispose its partial file exactly once (aborts ${beforeCancelAborts} -> ${aborts})`);
+
+    await rememberProjectBundle(projectId, RECT_BUNDLE);
+    const beforeCloseAborts = aborts;
+    failClose = true;
+    await api.exportScene(scene.entity, config);
+    await expectFailure('write', 'free space');
+    check(aborts === beforeCloseAborts + 1, 'a close failure must dispose its partial file');
+    failClose = false;
+    toast.dismiss();
 
     await rememberProjectBundle(projectId, RECT_BUNDLE);
     await deletedSceneRetry();

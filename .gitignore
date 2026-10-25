@@ -51,8 +51,3 @@ purecut/KaTeX_*
 purecut/compiler-runtime.js
 
 purecut/integration-runtime.js
-
-purecut/frame-runtime.css
-purecut/KaTeX_*.woff
-purecut/KaTeX_*.woff2
-purecut/KaTeX_*.ttf
