@@ -14,7 +14,8 @@ export class TargetBuffer {
   public constructor(
     target: StreamTarget | BufferTarget,
     fastStart: false | 'in-memory',
-    handle: FileSystemFileHandle | WritableFileTarget | undefined
+    handle: FileSystemFileHandle | WritableFileTarget | undefined,
+    private onCancel?: () => void
   ) {
     this.target = target;
     this.fastStart = fastStart;
@@ -28,13 +29,14 @@ export class TargetBuffer {
     if (handle) {
       const fileStream = await handle.createWritable();
       const writer = fileStream.getWriter();
+      let canceled = false;
       const stream = new WritableStream<Parameters<typeof writer.write>[0]>({
         write: async chunk => {
           try { await writer.write(chunk); }
           catch (error) { throw asExportError('write', error); }
         },
         close: async () => {
-          try { await writer.close(); }
+          try { await (canceled ? writer.abort() : writer.close()); }
           catch (error) { throw asExportError('write', error); }
         },
         abort: async reason => {
@@ -42,10 +44,19 @@ export class TargetBuffer {
           catch (error) { throw asExportError('write', error); }
         },
       });
-      return new TargetBuffer(new StreamTarget(stream, { chunked: true, chunkSize }), false, handle);
+      return new TargetBuffer(
+        new StreamTarget(stream, { chunked: true, chunkSize }),
+        false,
+        handle,
+        () => { canceled = true; }
+      );
     }
 
     return new TargetBuffer(new BufferTarget(), 'in-memory', undefined);
+  }
+
+  public cancel(): void {
+    this.onCancel?.();
   }
 
   public async close(format: ContainerFormat = 'mp4'): Promise<Blob | undefined> {

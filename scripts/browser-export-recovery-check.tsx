@@ -220,10 +220,11 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     check(busy, 'a concurrent export must explain that an export is already running');
     check(!(busy as { action?: unknown }).action, 'a busy export must not offer Retry');
     await wait(() => writeAttempts > beforeCancelWriteAttempts, 'long export did not open its output file');
+    await wait(() => (renderOverlay()?.progress ?? 0) > 0, 'long export did not start encoding');
     const beforeCancelAborts = aborts;
     cancelRender();
     await pending;
-    check(aborts === beforeCancelAborts + 1, 'a cancelled export must dispose its partial file');
+    check(aborts === beforeCancelAborts + 1, `a cancelled export must dispose its partial file (aborts ${beforeCancelAborts} -> ${aborts})`);
 
     await rememberProjectBundle(projectId, RECT_BUNDLE);
     await deletedSceneRetry();
