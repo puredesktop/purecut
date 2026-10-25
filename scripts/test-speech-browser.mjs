@@ -62,7 +62,7 @@ async function reviewChecks(page) {
   const start = review.getByRole('spinbutton', { name: 'Cut 1 start seconds' })
   await start.fill('1.2')
   await start.press('Tab')
-  await review.getByText('This cuts into a spoken word rather than between words.', { exact: false }).waitFor()
+  await review.getByText('This cuts into “um” rather than between words.', { exact: false }).waitFor()
   assert.equal(await review.locator('del').textContent(), 'part of “um”')
   await start.fill('1')
   await start.press('Tab')

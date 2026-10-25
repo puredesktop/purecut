@@ -62,6 +62,7 @@ import {
   cleanSceneName,
   cutContent,
   cutContexts,
+  cutWarning,
   fillerSuggestions,
   formatSeconds,
   formatTimestamp,
@@ -1145,23 +1146,13 @@ export function SpeechPanel() {
                               <span class="cut-review-kept"> {item().after.map(w => w.text).join(' ')}…</span>
                             </Show>
                           </p>
-                          <Switch>
-                            <Match when={contentOf(item()) === 'partial'}>
-                              <p class="cut-review-warning">
-                                This cuts into a spoken word rather than between words. Adjust the boundary or keep this section.
+                          <Show when={cutWarning(item(), contentOf(item()))}>
+                            {warning => (
+                              <p class={warning().tone === 'warning' ? 'cut-review-warning' : 'cut-review-caution'}>
+                                {warning().text}
                               </p>
-                            </Match>
-                            <Match when={contentOf(item()) === 'words' && item().trimmed.length}>
-                              <p class="cut-review-warning">
-                                Also clips the edge of “{item().trimmed.map(w => w.text).join(' ')}”. Adjust the boundary if it sounds cut off.
-                              </p>
-                            </Match>
-                            <Match when={contentOf(item()) === 'untranscribed' || contentOf(item()) === 'unknown'}>
-                              <p class="cut-review-caution">
-                                Not checked against the audio. Listen before applying.
-                              </p>
-                            </Match>
-                          </Switch>
+                            )}
+                          </Show>
                           <div class="cut-review-actions">
                             <Button variant="ghost" size="small" disabled={busy() && previewing() !== index} onClick={() => preview(proposal(), index)}>
                               {previewing() === index ? 'Stop' : 'Listen'}

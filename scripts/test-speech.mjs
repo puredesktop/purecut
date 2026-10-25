@@ -303,6 +303,38 @@ console.log('PASS speech review: silence only where the waveform found it; parti
 }
 console.log('PASS speech review: only words wholly inside a cut count as removed; every other overlap is partial')
 
+// Overlapping timings: words are ordered by start, not by end, so a long word
+// can reach past shorter ones that follow it. Every word a cut touches counts.
+{
+  const at = (text, start, end, i) => ({ text, start, end, index: i, key: `o:${i}`, speaker: 'A' })
+  const spoken = [at('so', 0, 0.4, 0), at('looong', 1, 4, 1), at('yes', 2, 2.5, 2), at('then', 5, 5.3, 3)]
+  const [inside] = m.cutContexts([{ start: 3, end: 3.5 }], spoken)
+  assert.deepEqual(inside.trimmed.map(w => w.text), ['looong'], 'a word starting well before the cut is still found')
+  assert.deepEqual(inside.removed, [])
+  assert.deepEqual(inside.before.map(w => w.text), ['so', 'yes'], 'untouched words stay as context, in order')
+  assert.deepEqual(inside.after.map(w => w.text), ['then'])
+  assert.equal(m.cutContent(inside), 'partial')
+  assert.equal(m.cutContent(inside, [{ start: 2.6, end: 4.5 }]), 'partial', 'never silence while a word is cut')
+  assert.equal(m.cutWarning(inside, m.cutContent(inside)).text,
+    'This cuts into “looong” rather than between words. Adjust the boundary or keep this section.')
+  // The same case after a boundary edit, through the frame alignment Apply uses.
+  const [edited] = m.cutContexts(m.frameRanges([{ start: 2.2, end: 3.5 }], 30, 6), spoken)
+  assert.deepEqual(edited.trimmed.map(w => w.text), ['looong', 'yes'])
+  assert.equal(m.cutWarning(edited, m.cutContent(edited)).tone, 'warning')
+  const [widened] = m.cutContexts(m.frameRanges([{ start: 1.9, end: 3.5 }], 30, 6), spoken)
+  assert.deepEqual(widened.removed.map(w => w.text), ['yes'])
+  assert.deepEqual(widened.trimmed.map(w => w.text), ['looong'])
+  assert.equal(m.cutContent(widened), 'words')
+  assert.equal(m.cutWarning(widened, m.cutContent(widened)).text,
+    'Also cuts into “looong”, so part of it stays. Adjust the boundary if it sounds cut off.')
+  const [after] = m.cutContexts([{ start: 4.2, end: 4.8 }], spoken)
+  assert.deepEqual([after.removed, after.trimmed], [[], []], 'a cut after every word ends touches none')
+  assert.equal(m.cutWarning(after, m.cutContent(after)).tone, 'caution')
+  const [clean] = m.cutContexts([{ start: 5, end: 5.3 }], spoken)
+  assert.equal(m.cutWarning(clean, m.cutContent(clean)), null, 'a whole word removed needs no note')
+}
+console.log('PASS speech review: overlapping word timings still flag every partly cut word')
+
 // Highlight names: offered from the passage, cleaned, never a duplicate.
 assert.equal(
   m.highlightExcerpt([{ text: 'um,' }, { text: 'we' }, { text: 'shipped' }, { text: '"it"' }, { text: 'on' }, { text: 'time.' }, { text: 'Then' }]),

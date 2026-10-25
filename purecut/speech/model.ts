@@ -334,30 +334,55 @@ export function cutContexts(
   words: TimelineWord[],
   context = 4,
 ): CutContext[] {
+  // Words are ordered by start, but timings may overlap, so ends are not
+  // ordered: a long word can reach past later, shorter ones. reach[i] is the
+  // latest end among words 0..i, which bounds how far back a cut can touch.
+  const reach: number[] = []
+  words.forEach((word, i) => {
+    reach[i] = Math.max(i ? reach[i - 1] : -Infinity, word.end)
+  })
   return cuts.map(cut => {
-    let lo = firstAtOrAfter(words, cut.start)
-    while (lo > 0 && words[lo - 1].end > cut.start + 0.001) lo--
-    let hi = lo
+    const hi = firstAtOrAfter(words, cut.end - 0.001)
     const removed: TimelineWord[] = [],
-      trimmed: TimelineWord[] = []
-    while (hi < words.length && words[hi].start < cut.end - 0.001) {
-      const word = words[hi++]
+      trimmed: TimelineWord[] = [],
+      before: TimelineWord[] = []
+    for (let i = hi - 1; i >= 0; i--) {
+      if (reach[i] <= cut.start + 0.001 && before.length >= context) break
+      const word = words[i]
       const overlap =
         Math.min(word.end, cut.end) - Math.max(word.start, cut.start)
-      if (overlap <= 0.001) continue
-      const whole = word.start >= cut.start - 0.001 && word.end <= cut.end + 0.001
-      ;(whole ? removed : trimmed).push(word)
+      if (overlap > 0.001) {
+        const whole = word.start >= cut.start - 0.001 && word.end <= cut.end + 0.001
+        ;(whole ? removed : trimmed).unshift(word)
+      } else if (before.length < context) before.unshift(word)
     }
     return {
       start: cut.start,
       end: cut.end,
       duration: cut.end - cut.start,
-      before: words.slice(Math.max(0, lo - context), lo),
+      before,
       removed,
       trimmed,
       after: words.slice(hi, hi + context),
     }
   })
+}
+/**
+ * The note under a cut in the review, or null. Every word the cut only partly
+ * removes is named: a fragment of it stays audible.
+ */
+export function cutWarning(
+  item: CutContext,
+  content: CutContent | 'unknown',
+): { tone: 'warning' | 'caution'; text: string } | null {
+  const partly = `“${item.trimmed.map(w => w.text).join(' ')}”`
+  if (content === 'partial')
+    return { tone: 'warning', text: `This cuts into ${partly} rather than between words. Adjust the boundary or keep this section.` }
+  if (content === 'words' && item.trimmed.length)
+    return { tone: 'warning', text: `Also cuts into ${partly}, so part of it stays. Adjust the boundary if it sounds cut off.` }
+  if (content === 'untranscribed' || content === 'unknown')
+    return { tone: 'caution', text: 'Not checked against the audio. Listen before applying.' }
+  return null
 }
 /** Plain-language rule for pause cleanup, shown before any audio is analysed. */
 export function pauseRule(minimum: number, retain: number) {
