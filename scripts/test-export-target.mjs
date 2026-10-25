@@ -26,13 +26,16 @@ try {
   });
   const isWriteError = error => error.name === 'ExportError' && error.stage === 'write';
 
-  let writes = 0;
+  let writes = 0, failedAborts = 0;
   const diskFull = Error('disk full');
-  const failed = await create({ write() { if (++writes === 2) throw diskFull; } });
+  const failed = await create({ write() { if (++writes === 2) throw diskFull; }, abort() { failedAborts++; } });
   await assert.rejects(async () => {
     for (let frame = 0; frame < 24; frame++) await add(failed.source, frame);
   }, error => isWriteError(error) && error.cause === diskFull);
   assert.equal(writes, 2, 'a chunk succeeds before a write fails during packet addition, without finalize');
+  failed.buffer.cancel();
+  await failed.output.cancel();
+  assert.equal(failedAborts, 1, 'a failed output aborts its writable instead of leaving it open');
 
   let closes = 0, aborts = 0;
   const canceled = await create({ write() {}, close() { closes++; }, abort() { aborts++; } });

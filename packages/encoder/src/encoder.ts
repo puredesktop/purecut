@@ -386,9 +386,12 @@ export async function createEncoder(world: World, config: EncoderConfig) {
 				data: await buffer.close(containerFormat),
 			};
 		} catch (e) {
+			const error = asExportError(stage, e);
+			buffer.cancel();
+			await output.cancel().catch(() => {});
 			return {
 				type: 'error',
-				error: asExportError(stage, e),
+				error,
 			};
 		} finally {
 			// The world, its canvas and the decoders opened in it are the
