@@ -2,6 +2,7 @@ import { render } from 'solid-js/web';
 import { toast, Toaster } from 'somoto';
 import { AssetLibrary, type ProjectFS } from '@diffusionstudio/assets';
 import { CanvasSource } from 'mediabunny';
+import { bridge as storageBridge } from '@purescience/platform-ui/bridge/client.mjs';
 import { Library } from '@diffusionstudio/runtime';
 import { EngineProvider, useEngineContext, type Engine } from '../apps/web/src/engine';
 import { createRuntimeDocument } from '../packages/reconciler/src';
@@ -27,6 +28,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
   const host = document.createElement('div');
   document.body.append(host);
   const originalBridgeCall = bridge.call;
+  const originalStorageBridgeCall = storageBridge.call;
   const originalMainCall = mainBridge.call;
   const originalVideoAdd = CanvasSource.prototype.add;
   let api!: ReturnType<typeof useExport>;
@@ -54,7 +56,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
   };
   const configSnapshot = structuredClone(config);
 
-  bridge.call = async (method, args) => {
+  const handleBridgeCall = async (method: string, args: any[]) => {
     if (method === 'storage.readJson') return { value: structuredClone(history), version: String(historyVersion) };
     if (method === 'storage.writeJson') {
       history = structuredClone(args[0].value);
@@ -63,6 +65,8 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     }
     throw Error(`Unexpected export bridge call: ${method}`);
   };
+  bridge.call = handleBridgeCall;
+  storageBridge.call = handleBridgeCall;
   mainBridge.call = (async (channel: string) => {
     if (channel === MAIN_CHANNELS.FILE_WRITE_OPEN) {
       writeAttempts++;
@@ -243,6 +247,7 @@ export async function checkExportRecovery(bridge: { call: (...args: any[]) => Pr
     dispose();
     host.remove();
     bridge.call = originalBridgeCall;
+    storageBridge.call = originalStorageBridgeCall;
     mainBridge.call = originalMainCall;
     toast.dismiss();
     await library.dispose();
