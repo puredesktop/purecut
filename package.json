@@ -24,6 +24,7 @@
     "test": "npm run test --workspaces --if-present",
     "build:purecut": "node scripts/purecut-dev.mjs --build",
     "test:purecut": "node scripts/test-projects.mjs",
+    "test:purecut:media": "node scripts/test-media-replacement.mjs",
     "test:purecut:tools": "node scripts/test-source-tools.mjs",
     "test:purecut:edit-core": "node scripts/test-edit-core.mjs",
     "test:purecut:disk": "node scripts/test-disk-editor.mjs",
@@ -31,11 +32,14 @@
     "check:purecut": "npm run check:dependencies && tsc --noEmit -p apps/web/tsconfig.app.json && tsc --noEmit -p purecut/tsconfig.json && tsc --noEmit -p purecut/tsconfig.frame.json",
     "test:purecut:browser": "node scripts/smoke-purecut.mjs",
     "typecheck": "npm run check:purecut",
-    "test:purecut:speech": "node scripts/test-speech.mjs && node scripts/test-speech-browser.mjs",
+    "test:purecut:speech": "node scripts/test-speech.mjs && node scripts/test-speech-status.mjs && node scripts/test-speech-browser.mjs",
     "test:purecut:speech:native": "node scripts/test-speech-electron.mjs",
     "check:dependencies": "node scripts/check-dependencies.mjs",
     "test:purecut:large-media": "node scripts/test-large-media-node.mjs",
-    "test:purecut:large-media:browser": "node scripts/test-large-media.mjs"
+    "test:purecut:large-media:browser": "node scripts/test-large-media.mjs",
+    "test:purecut:release-matrix": "node scripts/test-release-matrix.mjs",
+    "release-matrix:report": "node scripts/release-matrix.mjs --report",
+    "release-matrix:run": "node scripts/release-matrix.mjs --run"
   },
   "devDependencies": {
     "@types/babel__standalone": "^7.1.9",

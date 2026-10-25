@@ -66,7 +66,7 @@ export function Canvas(props: { loading?: boolean; error?: string; onRetry?: () 
 
     const files = droppedFiles(event);
     if (files.length) {
-      for (const asset of await importFiles(library, files, '')) place(asset);
+      for (const asset of (await importFiles(library, files, '')).assets) place(asset);
     }
   }
 
