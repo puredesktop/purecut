@@ -5,7 +5,7 @@
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { useTrait, useWorld } from "@diffusionstudio/koota-solid";
 import {
-  AssetId, Caption, Color, Computed, FontStyle, FrameRate, TextStyle, colorToHex, getActiveEntity, getAsset, getWebFonts, loadWebFont,
+  AssetId, Caption, Color, Computed, FontStyle, FrameRate, Offset, Position, TextStyle, colorToHex, getActiveEntity, getAsset, getWebFonts, loadWebFont,
   resolveTranscript, store,
 } from "@diffusionstudio/runtime";
 import { authoredElement } from "@diffusionstudio/reconciler";
@@ -18,7 +18,7 @@ import { useProject } from "@/context/project";
 import { CaptionSampler } from "@/engine/caption-sample";
 import { CAPTION_PRESET_OPTIONS, captionStyleFor, captionTextPaint } from "./caption-types";
 import {
-  HEAVY_COVERAGE, SAMPLE_CUE, assessCaptionPaints, cropPixels, highlightColors, paintSampleBackdrop,
+  HEAVY_COVERAGE, SAMPLE_CUE, assessCaptionPaints, cropPixels, highlightColors, latestOnly, paintSampleBackdrop,
 } from "./caption-preview";
 
 import type { Transcript } from "@diffusionstudio/assets";
@@ -124,14 +124,18 @@ export function CaptionFootageCheck(props: Props) {
     return { transcript: cues, seconds: playing ? at : cue.words[0]!.start + 0.01 };
   });
 
-  // The caption's own style props, which a preset change keeps: the TextStyle
-  // and Color traits move when they are edited, so reading them re-runs the
-  // previews.
+  // The caption's own style and placement props, which a preset change keeps:
+  // the TextStyle, Color, Position and Offset traits move when they are
+  // edited, so reading them re-runs the previews.
   const textStyle = useTrait(() => props.entity, TextStyle);
   const baseColor = useTrait(() => props.entity, Color);
+  const placed = useTrait(() => props.entity, Position);
+  const offset = useTrait(() => props.entity, Offset);
   const authored = () => {
     textStyle();
     baseColor();
+    placed();
+    offset();
     return authoredElement(props.entity)?.props ?? {};
   };
   /** Each preset's style on this caption: the preset with the caption's overrides over it. */
@@ -163,14 +167,21 @@ export function CaptionFootageCheck(props: Props) {
   onCleanup(() => sampler.dispose());
 
   /**
-   * Draws one preview and reports how it reads. The backdrop is drawn and
-   * kept before the caption goes on, so what is measured under the words is
-   * the picture they have to stand out from.
+   * Draws one preview and reports how it reads. It is drawn whole on a
+   * canvas of its own — backdrop, then caption — and copied onto the visible
+   * one only if no newer redraw has started meanwhile, so an older caption
+   * never lands on a newer backdrop (and Stark's difference pass never runs
+   * twice over one picture). The backdrop is kept before the caption goes on,
+   * so what is measured under the words is the picture they stand out from.
    */
-  const paint = async (canvas: HTMLCanvasElement, option: CaptionPresetOption, backdrop: Backdrop): Promise<PreviewResult | null> => {
+  const paint = async (
+    target: HTMLCanvasElement, option: CaptionPresetOption, backdrop: Backdrop, isCurrent: () => boolean,
+  ): Promise<PreviewResult | null> => {
+    const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
     const scene = sceneSize();
+    canvas.width = target.width;
     const scale = canvas.width / scene.width;
     canvas.height = Math.round(scene.height * scale);
     const frame = shot()?.frame;
@@ -188,6 +199,9 @@ export function CaptionFootageCheck(props: Props) {
     const { block } = await sampler.draw(ctx, {
       scene, scale, props: authored(), preset: option.name, colors: colors.map(colorToHex), transcript: words, seconds,
     });
+    if (!isCurrent()) return null;
+    target.height = canvas.height;
+    target.getContext("2d")?.drawImage(canvas, 0, 0);
     if (!block) return { readability: { lost: 0, verdict: "clear", weakest: "text" }, coverage: 0 };
 
     const px = Math.max(0, Math.floor(block.x * scale));
@@ -210,8 +224,8 @@ export function CaptionFootageCheck(props: Props) {
     onResult?: (result: PreviewResult) => void;
   }) => {
     let canvas!: HTMLCanvasElement;
-    // A newer draw supersedes one still waiting on its transcript.
-    let latest = 0;
+    // A newer redraw supersedes one still in flight: only the latest reaches the canvas.
+    const redraw = latestOnly<PreviewResult | null>();
     createEffect(() => {
       if (!fontsReady()) return;
       shot();
@@ -219,9 +233,8 @@ export function CaptionFootageCheck(props: Props) {
       authored();
       const option = previewProps.option;
       const backdrop = previewProps.backdrop;
-      const draw = ++latest;
-      void paint(canvas, option, backdrop).then(result => {
-        if (result && draw === latest) previewProps.onResult?.(result);
+      void redraw(isCurrent => paint(canvas, option, backdrop, isCurrent)).then(result => {
+        if (result) previewProps.onResult?.(result);
       });
     });
     return <canvas

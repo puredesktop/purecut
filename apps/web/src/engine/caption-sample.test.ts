@@ -64,7 +64,7 @@ import { createRuntimeWorld, drawOnto, Library, resolveCaptionDecoder, bindAsset
 import { createRuntimeDocument } from '@diffusionstudio/reconciler';
 import { CaptionSampler } from './caption-sample';
 import { CAPTION_PRESET_OPTIONS, captionTextPaint } from '../components/sidebar-right/inspector/caption-types';
-import { assessCaptionPaints } from '../components/sidebar-right/inspector/caption-preview';
+import { assessCaptionPaints, cropPixels, latestOnly } from '../components/sidebar-right/inspector/caption-preview';
 
 import type { Asset, AssetLibrary, Transcript } from '@diffusionstudio/assets';
 import type { CaptionPreset } from '@diffusionstudio/jsx';
@@ -181,6 +181,53 @@ describe('caption previews drawn by the runtime', () => {
     expect(early.runs.map(run => run.chars.trim()).join(' ')).toBe('one');
     expect(late.runs.map(run => run.chars.trim()).join(' ')).toBe('one two three four five');
     expect(late.block!.width).toBeGreaterThan(early.block!.width);
+  });
+
+  it('places the caption with its offset, and judges it where the offset puts it', async () => {
+    const line = [cue('Plain words here', 1, 0.3)];
+    const plain = await draw('whisper', line, 1.1);
+    const moved = await draw('whisper', line, 1.1, { offsetX: 300, offsetY: -600 });
+    expect(moved.block!.x - plain.block!.x).toBeCloseTo(300);
+    expect(moved.block!.y - plain.block!.y).toBeCloseTo(-600);
+    // A picture bright in its lower half (a white shirt) and dark above it,
+    // at a tenth of the scene's size.
+    const scale = 0.1;
+    const width = scene.width * scale, height = scene.height * scale;
+    const picture = { width, data: new Uint8ClampedArray(width * height * 4) };
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      picture.data.fill(y >= height / 2 ? 250 : 20, i, i + 3);
+      picture.data[i + 3] = 255;
+    }
+    const whisper = CAPTION_PRESET_OPTIONS.find(option => option.name === 'whisper')!;
+    const verdict = (block: { x: number; y: number; width: number; height: number }) => {
+      const x = Math.floor(block.x * scale), y = Math.floor(block.y * scale);
+      const pixels = cropPixels(picture, x, y, Math.ceil(block.width * scale), Math.ceil(block.height * scale));
+      return assessCaptionPaints(pixels, { text: 0xffffff, highlights: [] }, whisper.look).verdict;
+    };
+    expect(verdict(plain.block!)).toBe('lost');
+    expect(verdict(moved.block!)).toBe('clear');
+  });
+
+  it('lets only the latest of two overlapping redraws reach the screen', async () => {
+    const redraw = latestOnly<string>();
+    const shown: string[] = [];
+    let finishFirst!: () => void;
+    const firstWaits = new Promise<void>(resolve => { finishFirst = resolve; });
+    // The first redraw is still waiting on its caption when the second starts and finishes.
+    const first = redraw(async isCurrent => {
+      await firstWaits;
+      if (isCurrent()) shown.push('old caption');
+      return 'old';
+    });
+    const second = redraw(async isCurrent => {
+      if (isCurrent()) shown.push('new caption');
+      return 'new';
+    });
+    expect(await second).toBe('new');
+    finishFirst();
+    expect(await first).toBeNull();
+    expect(shown).toEqual(['new caption']);
   });
 
   it('keeps the caption\'s own size, so coverage follows it', async () => {

@@ -14,7 +14,7 @@
  */
 
 import {
-  CaptionDecoderHandle, Computed, Position, RenderSurface, Size, TextCache, bindAsset, createRuntimeWorld, drawOnto,
+  CaptionDecoderHandle, Computed, Offset, Position, RenderSurface, Size, TextCache, bindAsset, createRuntimeWorld, drawOnto,
   Library, resolveCaptionDecoder, store,
 } from '@diffusionstudio/runtime';
 import { createRuntimeDocument } from '@diffusionstudio/reconciler';
@@ -29,7 +29,7 @@ type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 /** The authored props of a caption that shape how it looks; `src` and timing are not among them. */
 export const CAPTION_LOOK_PROPS = [
   'fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'textAlign', 'textBaseline', 'textCase', 'letterSpacing',
-  'leading', 'fill', 'x', 'y', 'verticalAlign',
+  'leading', 'fill', 'x', 'y', 'offsetX', 'offsetY', 'verticalAlign',
 ] as const;
 
 export type CaptionSampleRequest = {
@@ -120,7 +120,11 @@ export class CaptionSampler {
       const size = entity.get(Size);
       computed.width[id] = size?.width ?? 0;
       computed.height[id] = size?.height ?? 0;
-      const position = entity.get(Position) ?? { x: 0, y: 0 };
+      // Where the transform pass puts it: its placed position plus any
+      // authored offset (systems/transform.ts adds the two).
+      const placed = entity.get(Position) ?? { x: 0, y: 0 };
+      const offset = entity.has(Offset) ? entity.get(Offset)! : { x: 0, y: 0 };
+      const position = { x: placed.x + offset.x, y: placed.y + offset.y };
 
       ctx.save();
       ctx.scale(request.scale, request.scale);

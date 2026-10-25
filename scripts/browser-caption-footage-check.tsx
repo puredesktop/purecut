@@ -115,6 +115,7 @@ async function checkReadability(): Promise<Record<string, string>> {
       ['single line, leading 3', 'whisper', { leading: 3 }, [cue('Plain words here', 1, 0.3)], 1.1],
       ['Guinea, two lines', 'guinea', {}, [cue('alpha beta gamma delta', 2, 0.4)], 2.1],
       ['Stark with a white fill', 'stark', { fill: '#ffffff' }, [cue('LOUD WORDS', 0, 0.5)], 0.1],
+      ['moved by an offset', 'whisper', { offsetX: 300, offsetY: -400 }, [cue('Plain words here', 1, 0.3)], 1.1],
     ];
     for (const [name, preset, props, transcript, seconds] of cases) {
       canvas.width = scene.width; canvas.height = scene.height;

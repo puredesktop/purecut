@@ -125,6 +125,23 @@ export function highlightColors(look: CaptionPreviewLook, colors: number[]): num
 /** Past this share of the picture, a caption hides more than it helps. */
 export const HEAVY_COVERAGE = 0.2;
 
+/**
+ * Runs redraws of one preview so that only the latest one shows. Each run
+ * draws wherever it likes and gets `isCurrent`, which turns false as soon as
+ * a newer run starts; a run puts its result on screen only while it is still
+ * current, and a superseded run's result is null. Two redraws in flight can
+ * never both reach the visible canvas.
+ */
+export function latestOnly<T>(): (run: (isCurrent: () => boolean) => Promise<T>) => Promise<T | null> {
+  let latest = 0;
+  return async run => {
+    const mine = ++latest;
+    const isCurrent = () => mine === latest;
+    const result = await run(isCurrent);
+    return isCurrent() ? result : null;
+  };
+}
+
 /** The RGBA pixels of a rectangle of an image, row by row. */
 export function cropPixels(
   image: { data: ArrayLike<number>; width: number },
