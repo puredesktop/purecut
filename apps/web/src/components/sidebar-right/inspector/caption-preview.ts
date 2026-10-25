@@ -125,6 +125,16 @@ export function highlightColors(look: CaptionPreviewLook, colors: number[]): num
 /** Past this share of the picture, a caption hides more than it helps. */
 export const HEAVY_COVERAGE = 0.2;
 
+/** Share of the picture actually covered, excluding caption bounds outside it. */
+export function captionCoverage(
+  block: { x: number; y: number; width: number; height: number },
+  scene: { width: number; height: number },
+): number {
+  const width = Math.max(0, Math.min(scene.width, block.x + block.width) - Math.max(0, block.x));
+  const height = Math.max(0, Math.min(scene.height, block.y + block.height) - Math.max(0, block.y));
+  return width * height / (scene.width * scene.height);
+}
+
 /**
  * Runs redraws of one preview so that only the latest one shows. Each run
  * draws wherever it likes and gets `isCurrent`, which turns false as soon as
@@ -142,11 +152,17 @@ export function latestOnly<T>(): (run: (isCurrent: () => boolean) => Promise<T>)
   };
 }
 
-/** The RGBA pixels of a rectangle of an image, row by row. */
+/** The RGBA pixels inside both the requested rectangle and the image, row by row. */
 export function cropPixels(
   image: { data: ArrayLike<number>; width: number },
   x: number, y: number, width: number, height: number,
 ): Uint8ClampedArray {
+  const right = Math.min(image.width, x + width);
+  const bottom = Math.min(image.data.length / (image.width * 4), y + height);
+  x = Math.max(0, x);
+  y = Math.max(0, y);
+  width = Math.max(0, right - x);
+  height = Math.max(0, bottom - y);
   const out = new Uint8ClampedArray(width * height * 4);
   for (let row = 0; row < height; row++) {
     for (let i = 0; i < width * 4; i++) out[row * width * 4 + i] = image.data[((y + row) * image.width + x) * 4 + i]!;

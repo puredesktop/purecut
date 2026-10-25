@@ -18,7 +18,7 @@ import { useProject } from "@/context/project";
 import { CaptionSampler } from "@/engine/caption-sample";
 import { CAPTION_PRESET_OPTIONS, captionStyleFor, captionTextPaint } from "./caption-types";
 import {
-  HEAVY_COVERAGE, SAMPLE_CUE, assessCaptionPaints, cropPixels, highlightColors, latestOnly, paintSampleBackdrop,
+  HEAVY_COVERAGE, SAMPLE_CUE, assessCaptionPaints, captionCoverage, cropPixels, highlightColors, latestOnly, paintSampleBackdrop,
 } from "./caption-preview";
 
 import type { Transcript } from "@diffusionstudio/assets";
@@ -65,6 +65,8 @@ type Props = {
 export function CaptionFootageCheck(props: Props) {
   const world = useWorld();
   const project = useProject();
+  let disposed = false;
+  onCleanup(() => { disposed = true; });
   const assetId = useTrait(() => props.entity, AssetId);
 
   const [candidate, setCandidate] = createSignal<CaptionPresetOption>(props.current);
@@ -73,7 +75,7 @@ export function CaptionFootageCheck(props: Props) {
 
   // What the shot is: rendered once when the panel opens and again on request,
   // since a render is a second, offline pass over the whole project.
-  const [shot, setShot] = createSignal<{ frame: ImageBitmap | null; at: number; error: string } | null>(null);
+  const [shot, setShot] = createSignal<{ frame: ImageBitmap | null; at: number; captionAt: number; error: string } | null>(null);
   const [capturing, setCapturing] = createSignal(false);
   const sceneSize = () => {
     const scene = getActiveEntity(world);
@@ -91,15 +93,21 @@ export function CaptionFootageCheck(props: Props) {
     const scene = getActiveEntity(world);
     if (!scene || capturing()) return;
     setCapturing(true);
-    const at = captionSeconds();
+    const at = (store(world, Computed).localTime[scene.id()] ?? 0) / (world.get(FrameRate)?.value ?? 30);
+    // The frame label uses scene time; the decoder uses transcript time,
+    // which can differ when this caption starts later or has been trimmed.
+    const captionAt = captionSeconds();
     try {
       const frame = await captureFrameWithoutCaptions(world, scene, project.dir());
+      if (disposed) { frame.close(); return; }
       shot()?.frame?.close();
-      setShot({ frame, at, error: "" });
+      setShot({ frame, at, captionAt, error: "" });
     } catch (error) {
-      setShot({ frame: null, at, error: error instanceof Error ? error.message : String(error) });
+      if (disposed) return;
+      shot()?.frame?.close();
+      setShot({ frame: null, at, captionAt, error: error instanceof Error ? error.message : String(error) });
     } finally {
-      setCapturing(false);
+      if (!disposed) setCapturing(false);
     }
   };
   void capture();
@@ -116,7 +124,7 @@ export function CaptionFootageCheck(props: Props) {
    * stand-in cue for a caption with no words yet.
    */
   const sample = createMemo(() => {
-    const at = shot()?.at ?? 0;
+    const at = shot()?.captionAt ?? 0;
     const cues = (transcript() ?? []).filter(cue => cue.words.length);
     if (!cues.length) return { transcript: [SAMPLE_CUE], seconds: SAMPLE_CUE.words[0]!.start + 0.01 };
     const playing = cues.find(cue => at >= cue.words[0]!.start && at <= cue.words.at(-1)!.end);
@@ -199,22 +207,27 @@ export function CaptionFootageCheck(props: Props) {
     const { block } = await sampler.draw(ctx, {
       scene, scale, props: authored(), preset: option.name, colors: colors.map(colorToHex), transcript: words, seconds,
     });
-    if (!isCurrent()) return null;
+    if (disposed || !isCurrent()) return null;
     target.height = canvas.height;
     target.getContext("2d")?.drawImage(canvas, 0, 0);
     if (!block) return { readability: { lost: 0, verdict: "clear", weakest: "text" }, coverage: 0 };
+    const coverage = captionCoverage(block, scene);
+    if (!coverage) return { readability: { lost: 1, verdict: "lost", weakest: "text" }, coverage: 0 };
 
-    const px = Math.max(0, Math.floor(block.x * scale));
-    const py = Math.max(0, Math.floor(block.y * scale));
-    const pw = Math.min(canvas.width - px, Math.ceil(block.width * scale));
-    const ph = Math.min(canvas.height - py, Math.ceil(block.height * scale));
+    // Keep the original edges until cropPixels intersects them with the
+    // frame. Clamping only x/y shifts the sample onto unrelated footage
+    // when an authored offset puts some of the caption outside the frame.
+    const px = Math.floor(block.x * scale);
+    const py = Math.floor(block.y * scale);
+    const pw = Math.ceil((block.x + block.width) * scale) - px;
+    const ph = Math.ceil((block.y + block.height) * scale) - py;
     const textPaint = captionTextPaint(option, authored());
     const readability = pw > 0 && ph > 0
       ? assessCaptionPaints(cropPixels(picture, px, py, pw, ph),
         { text: textPaint.text, highlights: highlightColors(option.look, colors) },
         { shadow: option.look.shadow, difference: textPaint.difference })
       : { lost: 0, verdict: "clear" as const, weakest: "text" as const };
-    return { readability, coverage: (block.width * block.height) / (scene.width * scene.height) };
+    return { readability, coverage };
   };
 
   const Preview = (previewProps: {
@@ -269,7 +282,7 @@ export function CaptionFootageCheck(props: Props) {
   };
 
   const captionCount = () => editableCaptions(world).editable.length;
-  /** A preview's verdict; none for the frame while no frame is rendered (a failed refresh leaves the old one). */
+  /** A preview's verdict; none for the frame while no frame is rendered. */
   const detail = (backdrop: Backdrop) =>
     backdrop === "frame" && !shot()?.frame ? undefined : results()[`${candidate().name}:${backdrop}`];
 
@@ -352,7 +365,7 @@ export function CaptionFootageCheck(props: Props) {
     </div>
     <Show when={detail("frame") ?? detail("bright")}>{result =>
       <div class={cx("mt-1.5 text-xxs", result().coverage > HEAVY_COVERAGE ? "text-foreground" : "text-muted-foreground")}>
-        Covers {Math.max(1, Math.round(result().coverage * 100))}% of the picture
+        Covers {result().coverage ? Math.max(1, Math.round(result().coverage * 100)) : 0}% of the picture
         {result().coverage > HEAVY_COVERAGE ? ", which hides a lot of the shot." : "."}
       </div>}
     </Show>

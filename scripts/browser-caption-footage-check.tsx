@@ -272,7 +272,9 @@ export async function checkCaptionFootage(): Promise<Record<string, string>> {
     // The actual footage panel, including its real frame capture and Apply
     // buttons. The authored Spotlight has white text but a black highlight.
     computed.localTime[scene.id()] = 60;
-    computed.localTime[first.id()] = 60;
+    // A caption starting one second into the scene has a different clock:
+    // the frame label must still say 0:02, not transcript time 0:01.
+    computed.localTime[first.id()] = 30;
     dispose = render(() => <ProjectProvider project={{ id: projectId, dir: '', displayName: 'Caption footage' } as ProjectInfo}>
       <WorldProvider world={world}>
         <CaptionFootageCheck entity={first} current={CAPTION_PRESET_OPTIONS.find(o => o.name === 'spotlight')!} currentColors={[0x000000]} />

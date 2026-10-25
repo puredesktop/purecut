@@ -60,6 +60,7 @@ export class CaptionSampler {
   private readonly assets = new Map<string, Asset>();
   private queue: Promise<unknown> = Promise.resolve();
   private next = 0;
+  private disposed = false;
 
   public constructor() {
     // The decoders read their transcript through the library; this one only
@@ -75,7 +76,7 @@ export class CaptionSampler {
    * at a time: the world has one caption on stage at once.
    */
   public draw(ctx: Ctx2D, request: CaptionSampleRequest): Promise<CaptionSample> {
-    const run = this.queue.then(() => this.drawNow(ctx, request));
+    const run = this.queue.then(() => this.disposed ? { block: null } : this.drawNow(ctx, request));
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -107,6 +108,7 @@ export class CaptionSampler {
       const decoder = resolveCaptionDecoder(world, entity);
       if (!decoder) return { block: null };
       await decoder.initPromise;
+      if (this.disposed) return { block: null };
       if (!decoder.styled) decoder.styled = decoder.applyStyles(world, entity);
 
       // Played up to the moment, as playback reaches it: a preset that
@@ -153,7 +155,13 @@ export class CaptionSampler {
   }
 
   public dispose(): void {
-    this.document.dispose();
-    this.world.destroy();
+    if (this.disposed) return;
+    this.disposed = true;
+    // An in-flight decoder may still be awaiting initialization. Let its
+    // finally block release the caption before destroying the world it uses.
+    void this.queue.then(() => {
+      this.document.dispose();
+      this.world.destroy();
+    });
   }
 }
