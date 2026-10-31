@@ -4,7 +4,7 @@
 
 import { Show } from "solid-js";
 import { useWorld } from "@diffusionstudio/koota-solid";
-import { Rect, Scene, SolidPaint, Text } from "@diffusionstudio/reconciler";
+import { Ellipse, Polygon, Rect, Scene, SolidPaint, Text } from "@diffusionstudio/reconciler";
 import {
   Computed,
   findSceneAt,
@@ -38,6 +38,22 @@ const TOOL_CONFIG: Partial<Record<ToolType, ToolConfig>> = {
     previewColor: '#E0E0E0',
     namePrefix: 'Rect',
     label: 'Create shape',
+    defaultWidth: 300,
+    defaultHeight: 300,
+  },
+  [ToolType.ELLIPSE]: {
+    fillColor: '#E0E0E0',
+    previewColor: '#E0E0E0',
+    namePrefix: 'Ellipse',
+    label: 'Create ellipse',
+    defaultWidth: 300,
+    defaultHeight: 300,
+  },
+  [ToolType.POLYGON]: {
+    fillColor: '#E0E0E0',
+    previewColor: '#E0E0E0',
+    namePrefix: 'Polygon',
+    label: 'Create polygon',
     defaultWidth: 300,
     defaultHeight: 300,
   },
@@ -107,6 +123,12 @@ export function DrawOverlay() {
     previewRef.style.backgroundColor = cfg.previewColor;
     previewRef.style.outline = '2px solid #008CFF';
     previewRef.style.outlineOffset = '0px';
+    // The preview takes the shape it draws: an ellipse is round, a polygon
+    // the triangle it starts as (an outline would stay square, so it has none).
+    const tool = selectedTool();
+    previewRef.style.borderRadius = tool === ToolType.ELLIPSE ? '50%' : '0';
+    previewRef.style.clipPath = tool === ToolType.POLYGON ? 'polygon(50% 0, 100% 100%, 0 100%)' : 'none';
+    if (tool === ToolType.POLYGON) previewRef.style.outline = 'none';
 
     const worldTopLeft = screenToWorld(world, rect.x, rect.y);
     const worldBottomRight = screenToWorld(world, rect.x + rect.width, rect.y + rect.height);
@@ -223,6 +245,20 @@ export function DrawOverlay() {
       }
       if (tool === ToolType.TEXT) {
         return <Text name={name} x={x} y={y} {...size} fontSize={fontSize} color={cfg.fillColor}>Text</Text>;
+      }
+      if (tool === ToolType.ELLIPSE) {
+        return (
+          <Ellipse name={name} x={x} y={y} {...size}>
+            <SolidPaint color={cfg.fillColor} />
+          </Ellipse>
+        );
+      }
+      if (tool === ToolType.POLYGON) {
+        return (
+          <Polygon name={name} x={x} y={y} {...size}>
+            <SolidPaint color={cfg.fillColor} />
+          </Polygon>
+        );
       }
       return (
         <Rect name={name} x={x} y={y} {...size}>

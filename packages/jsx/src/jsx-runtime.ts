@@ -19,7 +19,6 @@
  */
 
 import type { JSX as SolidJSX } from "solid-js";
-import type { AssetInput } from "./generate";
 import type {
   AdjustmentLayerProps,
   AnimationProps,
@@ -28,14 +27,19 @@ import type {
   ColorStopProps,
   EffectProps,
   MaskProps,
-  GradientPaintProps,
+  LinearGradientPaintProps,
+  RadialGradientPaintProps,
+  AngularGradientPaintProps,
   MediaPaintProps,
+  EllipseProps,
   GroupProps,
   HtmlPaintProps,
   HtmlProps,
   ImageProps,
   KeyframeProps,
   KeyframeTrackProps,
+  PathProps,
+  PolygonProps,
   RectProps,
   SceneProps,
   SequenceProps,
@@ -60,12 +64,12 @@ import type {
 type HtmlElementTags = Omit<SolidJSX.HTMLElementTags, "canvas" | "audio" | "video" | "html" | "img">;
 
 // `<img>` keeps every DOM attribute but takes the composition `src` inputs:
-// a path, an asset id, a URL, or a `generate.*` ref all resolve through the
-// host, and `data:`/`blob:` sources pass through to the browser untouched.
-type ImgTag = Omit<SolidJSX.HTMLElementTags["img"], "src"> & { src?: AssetInput };
+// a path, an asset id, or a URL all resolve through the host, and
+// `data:`/`blob:` sources pass through to the browser untouched.
+type ImgTag = Omit<SolidJSX.HTMLElementTags["img"], "src"> & { src?: string };
 
 // The shared names are re-declared below as unions with the composition props.
-type SvgElementTags = Omit<SolidJSX.SVGElementTags, "rect" | "text" | "image">;
+type SvgElementTags = Omit<SolidJSX.SVGElementTags, "rect" | "ellipse" | "polygon" | "path" | "text" | "image">;
 
 export declare namespace JSX {
   // Solid's Element type keeps Solid's control flow (<For>, <Show>, …) and
@@ -82,6 +86,9 @@ export declare namespace JSX {
     scene: SceneProps & SourceProps;
     group: GroupProps & SourceProps;
     rect: (RectProps & SourceProps) | SolidJSX.SVGElementTags["rect"];
+    ellipse: (EllipseProps & SourceProps) | SolidJSX.SVGElementTags["ellipse"];
+    polygon: (PolygonProps & SourceProps) | SolidJSX.SVGElementTags["polygon"];
+    path: (PathProps & SourceProps) | SolidJSX.SVGElementTags["path"];
     video: VideoProps & SourceProps;
     image: (ImageProps & SourceProps) | SolidJSX.SVGElementTags["image"];
     audio: AudioProps & SourceProps;
@@ -91,8 +98,9 @@ export declare namespace JSX {
     captions: CaptionsProps & SourceProps;
     adjustmentLayer: AdjustmentLayerProps & SourceProps;
     solidPaint: SolidPaintProps & SourceProps;
-    linearGradientPaint: GradientPaintProps & SourceProps;
-    radialGradientPaint: GradientPaintProps & SourceProps;
+    linearGradientPaint: LinearGradientPaintProps & SourceProps;
+    radialGradientPaint: RadialGradientPaintProps & SourceProps;
+    angularGradientPaint: AngularGradientPaintProps & SourceProps;
     imagePaint: MediaPaintProps & SourceProps;
     videoPaint: MediaPaintProps & SourceProps;
     colorStop: ColorStopProps & SourceProps;

@@ -60,7 +60,7 @@ export type PropValue = number | string | boolean | null | PropValue[] | { [key:
 
 /**
  * Whether a value is one a source file could spell — a `PropValue`. An
- * instance of a class (an `AssetRef`, say) is not, however plain its fields:
+ * instance of a class (a `Date`, say) is not, however plain its fields:
  * spelled as an object literal it would read back as something else.
  */
 export function isPropValue(value: unknown): value is PropValue {
@@ -93,6 +93,9 @@ export const COMPOSITION_TAGS = [
   "scene",
   "group",
   "rect",
+  "ellipse",
+  "polygon",
+  "path",
   "video",
   "image",
   "audio",
@@ -104,6 +107,7 @@ export const COMPOSITION_TAGS = [
   "solidPaint",
   "linearGradientPaint",
   "radialGradientPaint",
+  "angularGradientPaint",
   "imagePaint",
   "videoPaint",
   "colorStop",

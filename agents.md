@@ -31,6 +31,15 @@ Use `proposeCutSource` for structural JSX changes and review. `replaceCutSource`
 
 A project exports a Solid component returning `<stage><scene active width={1280} height={720} fill="#ffffff">…</scene></stage>`. Mark one scene active. Scenes have no duration: children have start/end in seconds. Text uses fontSize, fill, x and y. Local imported media lives in assets; use paths actually present. Only imports from solid-js and @diffusionstudio/jsx are supported. Source executes in the renderer; do not add network calls, storage access or unrelated code.
 
+### Shapes, lines and gradients
+
+- `<rect>`, `<ellipse>` and `<polygon pointCount={5}>` (3 or more corners, default 3) take the same props and children: `x`, `y`, `width`, `height`, `fill`, paint children, `<stroke>`, `<shadow>`, `<effect>`. A polygon's corners sit on the ellipse inside its box, stretched to touch every side.
+- `<path d="M0 240 C80 0 240 0 320 240 Z" width={320} height={240}>` draws SVG path data in the box's own pixels; add `viewBox="0 0 320 240"` so the outline stretches with its box. `fillRule="evenodd"` cuts holes. `trimStart`/`trimEnd`/`trimOffset` (fractions of the length) draw part of it: keyframe `trimEnd` from 0 to 1 to draw a line on. A `d` keyframe track morphs the outline between keyframes of matching subpaths. The person cannot draw or edit vertices on the canvas yet, so write paths yourself.
+- `<stroke color width cap join dash dashGap dashOffset>`: `cap` is `butt`, `round` or `square` (open path ends and every dash), `dash`/`dashGap` in px make a dashed line, and a keyframed `dashOffset` makes it march.
+- Gradients: `<linearGradientPaint>`, `<radialGradientPaint>` and `<angularGradientPaint>` (a conic sweep round `cx`/`cy`, fractions of the box), each holding `<colorStop offset color opacity>` children. A stroke takes them too.
+- `pivotX`/`pivotY` (px in the element's own box) set the point it rotates and scales about; without them it turns about the centre of its box.
+- Full reference: `docs/reference/jsx/rect.md`, `ellipse.md`, `polygon.md`, `path.md`, `paints.md`, `styles.md`.
+
 ### Masks and clip paths
 
 - `<rect clipPath>` inside a node clips that node to the rect's box. Several clip paths intersect. A clip path is never drawn, and it keeps its own transform and timing, so a keyframed clip path makes a wipe. The old spelling `<rect mask>` still works; write `clipPath`.

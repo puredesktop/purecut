@@ -10,34 +10,6 @@
  * @diffusionstudio/reconciler), so nothing in this package touches a host.
  */
 
-export {
-  generate,
-  transform,
-  AssetRef,
-  isAssetRef,
-  getAssetSpec,
-  getAssetInputs,
-  mapAssetInputs,
-  isTransformSpec,
-  isTransformType,
-  serializeAssetRef,
-  isSerializedAssetRef,
-} from "./generate";
-export type {
-  AspectRatio,
-  AssetInput,
-  AssetSpecInput,
-  GenerateSpec,
-  TransformSpec,
-  TransformType,
-  SerializedAssetInput,
-  SerializedAssetRef,
-  SerializedAssetSpec,
-  GenerateAudioOptions,
-  GenerateImageOptions,
-  GenerateVideoOptions,
-  GenerateVoiceOptions,
-} from "./generate";
 export { parseTime, TIME_FPS } from "./time";
 export {
   COMPOSITION_TAGS,
@@ -71,8 +43,13 @@ export type {
   EffectProps,
   MaskProps,
   EffectType,
+  FillRule,
   Fit,
   GradientPaintProps,
+  LinearGradientPaintProps,
+  RadialGradientPaintProps,
+  AngularGradientPaintProps,
+  EllipseProps,
   GroupProps,
   HorizontalConstraint,
   HtmlPaintProps,
@@ -81,6 +58,8 @@ export type {
   KeyframeProps,
   KeyframeTrackProps,
   MediaPaintProps,
+  PathProps,
+  PolygonProps,
   RectProps,
   SceneNode,
   SceneProps,
@@ -104,3 +83,31 @@ export type {
   VerticalConstraint,
   VideoProps,
 } from "./types";
+export {
+  generate,
+  transform,
+  AssetRef,
+  isAssetRef,
+  getAssetSpec,
+  getAssetInputs,
+  mapAssetInputs,
+  isTransformSpec,
+  isTransformType,
+  serializeAssetRef,
+  isSerializedAssetRef,
+} from "./generate";
+export type {
+  AspectRatio,
+  AssetInput,
+  AssetSpecInput,
+  GenerateSpec,
+  TransformSpec,
+  TransformType,
+  SerializedAssetInput,
+  SerializedAssetRef,
+  SerializedAssetSpec,
+  GenerateAudioOptions,
+  GenerateImageOptions,
+  GenerateVideoOptions,
+  GenerateVoiceOptions,
+} from "./generate";
