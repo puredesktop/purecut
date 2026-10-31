@@ -4,6 +4,7 @@
 
 import type { JSX as SolidJSX } from "solid-js";
 import type { Entity } from "koota";
+import type { AssetRef } from "./generate";
 
 /**
  * Composition-relative time: seconds (number), frames ("30f"), or a
@@ -356,10 +357,11 @@ type MediaProps = {
    * Path, URL, or asset id. A path naming a directory of numbered frames
    * (`shot_001.png`, `shot_002.png`, ...) is an image sequence, and plays on
    * `<Video>` or `<Image>` as footage does — see `frameRate` for how long it
-   * lasts. On `<Captions>` a transcript source: .srt, .vtt, transcript .json,
-   * or an audio or video asset carrying a transcript.
+   * lasts. On `<Captions>` a transcript source (.srt, .vtt, or transcript
+   * .json) mounted instead of transcribing the scene; `generate.*` is not
+   * accepted there.
    */
-  src: string;
+  src: string | AssetRef;
 };
 
 type FitProps = {
@@ -1073,7 +1075,7 @@ export type SequenceProps = Pick<IdentityProps, "name"> & {
   children?: SolidJSX.Element;
 };
 
-export type CaptionsProps = IdentityProps & TimingProps & OffsetProps & MediaProps & {
+export type CaptionsProps = IdentityProps & TimingProps & OffsetProps & Partial<MediaProps> & {
   /** Caption style preset. Default "classic". */
   preset?: CaptionPreset;
   /** Fills the caption preset's color slots in order; any CSS color, alpha is ignored. */
@@ -1084,6 +1086,12 @@ export type CaptionsProps = IdentityProps & TimingProps & OffsetProps & MediaPro
    * placement. Defaults to the preset's own alignment.
    */
   verticalAlign?: "top" | "center" | "bottom";
+  /**
+   * Transcription seed. Part of the transcript cache key (scene id + seed),
+   * so a new value bypasses the cached transcript and transcribes the scene
+   * again; reusing a value replays that take from cache. Default 0.
+   */
+  seed?: number;
   /** `<Animation>` children. */
   children?: SolidJSX.Element;
 };

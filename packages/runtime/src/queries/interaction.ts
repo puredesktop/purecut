@@ -65,6 +65,14 @@ export function entityOffset(world: World, entity: Entity): Point {
 	return { x: offset.x[eid] ?? 0, y: offset.y[eid] ?? 0 };
 }
 
+/** The node's anchor as a fraction of its box (0.5, 0.5 is its centre). */
+export function entityAnchor(world: World, entity: Entity): Point {
+	const anchor = store(world, Anchor);
+	const eid = entity.id();
+
+	return { x: anchor.x[eid] ?? 0.5, y: anchor.y[eid] ?? 0.5 };
+}
+
 /**
  * The point the node's rotation, scale and skew turn about, px in its own
  * space: its `Pivot` while it has one, else its anchor's fraction of its box

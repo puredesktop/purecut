@@ -83,3 +83,31 @@ export type {
   VerticalConstraint,
   VideoProps,
 } from "./types";
+export {
+  generate,
+  transform,
+  AssetRef,
+  isAssetRef,
+  getAssetSpec,
+  getAssetInputs,
+  mapAssetInputs,
+  isTransformSpec,
+  isTransformType,
+  serializeAssetRef,
+  isSerializedAssetRef,
+} from "./generate";
+export type {
+  AspectRatio,
+  AssetInput,
+  AssetSpecInput,
+  GenerateSpec,
+  TransformSpec,
+  TransformType,
+  SerializedAssetInput,
+  SerializedAssetRef,
+  SerializedAssetSpec,
+  GenerateAudioOptions,
+  GenerateImageOptions,
+  GenerateVideoOptions,
+  GenerateVoiceOptions,
+} from "./generate";
