@@ -19,23 +19,34 @@ import {
 import {
 	ChildOf, Hidden, Culled, Interactive, IsClipPath, AssetId,
 	ClipsContent, Geometry, Group, Paint, Color, Caption, ScaleMode, Shader,
-	BlendMode, Effect, Mask, Transition, MixedCornerRadius,
+	BlendMode, Effect, Mask, Transition, MixedCornerRadius, PointCount, EvenOdd,
 	LocalTransform, WorldTransform, Computed, Cache,
-	Host,
+	Host, Scene, Shimmering,
 	Mode, FrameRate, Camera, Background, RenderSurface,
 	HitRegions,
-	Root,
+	Root, Time,
 } from '../traits';
 import { getParentNode } from '../queries/hierarchy';
+import { isShapeGeometry } from '../queries/predicates';
+import { tracePath, traceShape } from '../math';
+import { getDrawnPath, getPathTransform } from '../queries/path';
 import { getViewMatrix } from '../queries/camera';
 import { colorToHex } from '../utils/color';
-import { FAILED_COLOR, getGeneratingColor, getSourceFailure, isGenerating } from '../utils/generating';
-import { applyStrokeStyle } from '../utils/stroke';
+import { FAILED_COLOR, getSourceFailure } from '../utils/source-failure';
+import { getGeneratingColor, isGenerating } from '../utils/generating';
+import { applyStrokeStyle, clearLineDash } from '../utils/stroke';
 import { renderText } from '../utils/text';
 import { getTransitionWindow } from '../utils/transition';
 import { drawOnto, getSurfaceContext } from '../utils/surface';
 import { findGeometryAssetSource, getIntrinsicPaint } from '../utils/time';
-import { createLinearGradient, createRadialGradient } from './gradients';
+import {
+	fillAngularGradient,
+	fillLinearGradient,
+	fillRadialGradient,
+	strokeAngularGradient,
+	strokeLinearGradient,
+	strokeRadialGradient,
+} from './gradients';
 import {
 	MaskDecoder, resolveImageDecoder, resolveVideoDecoder, resolveMaskFollow,
 	resolveCaptionDecoder, resolveShaderHost, resolveWaveformPeaks,
@@ -52,12 +63,39 @@ function getCtx(world: World): Ctx2D {
 	return getSurfaceContext(world)!;
 }
 
-export function drawRectPath(world: World, entity: Entity): void {
+// The rule the shape path fills and clips by. A canvas takes it with each
+// fill or clip rather than with the path, so `drawShapePath` leaves it here
+// for the calls that fill or clip by the outline it traced.
+let shapeFillRule: CanvasFillRule = 'nonzero';
+
+/**
+ * Begins the current path with the outline of `entity` in its own box: a
+ * rect with its corner radii, the ellipse or polygon its geometry names, or
+ * a path's outline (with its fill rule left in `shapeFillRule`). Everything
+ * that fills, strokes or clips by the node's shape reads it from here.
+ */
+export function drawShapePath(world: World, entity: Entity): void {
 	const ctx = getCtx(world);
 	const computed = store(world, Computed);
 	const eid = entity.id();
 	const w = computed.width[eid]!;
 	const h = computed.height[eid]!;
+
+	const type = entity.has(Geometry) ? store(world, Geometry).value[eid]! : GeometryType.RECT;
+	shapeFillRule = 'nonzero';
+	if (type === GeometryType.PATH) {
+		ctx.beginPath();
+		const geometry = getDrawnPath(world, entity);
+		if (geometry !== null) tracePath(ctx, geometry, getPathTransform(world, entity));
+		if (entity.has(EvenOdd)) shapeFillRule = 'evenodd';
+		return;
+	}
+	if (type !== GeometryType.RECT && isShapeGeometry(type)) {
+		const pointCount = entity.has(PointCount) ? store(world, PointCount).value[eid]! : 3;
+		ctx.beginPath();
+		traceShape(ctx, type, w, h, pointCount);
+		return;
+	}
 
 	const hasMixed = entity.has(MixedCornerRadius);
 	let tl = hasMixed ? computed.cornerRadiusTopLeft[eid]! : computed.cornerRadius[eid]!;
@@ -232,9 +270,11 @@ function buildEffects(world: World, entity: Entity): string | null {
  * before the Paint sub-entities so it always sits at the bottom of the fill
  * stack. A shader paint first in the stack takes an intrinsic image/video as
  * its input instead (see `renderShaderFill`), in which case the media is not
- * drawn here. Media paints and the surface paint (a `<surface>`, whose host
- * lives on the geometry) are intrinsic; a waveform (an audio clip's) has no
- * picture on the canvas.
+ * drawn here. Media paints, the surface paint (a `<surface>`, whose host
+ * lives on the geometry) and the waveform (an `<audio>`'s, drawn from its own
+ * asset) are intrinsic. An `<audio>` is a sound, so its waveform is drawn in
+ * the editor only, never into an export, and only for one on the stage: inside
+ * a scene it is part of a composition, where a waveform has no place.
  */
 export function renderIntrinsicFill(world: World, entity: Entity): void {
 	if (entity.has(Color)) {
@@ -242,7 +282,7 @@ export function renderIntrinsicFill(world: World, entity: Entity): void {
 		const computed = store(world, Computed);
 		const eid = entity.id();
 		ctx.fillStyle = colorToHex(computed.color[eid] ?? 0);
-		ctx.fill();
+		ctx.fill(shapeFillRule);
 	}
 
 	const intrinsic = getIntrinsicPaint(entity);
@@ -253,7 +293,7 @@ export function renderIntrinsicFill(world: World, entity: Entity): void {
 			const computed = store(world, Computed);
 			const eid = entity.id();
 			ctx.save();
-			ctx.clip();
+			ctx.clip(shapeFillRule);
 			ctx.drawImage(canvas, 0, 0, computed.width[eid]!, computed.height[eid]!);
 			ctx.restore();
 		}
@@ -261,6 +301,12 @@ export function renderIntrinsicFill(world: World, entity: Entity): void {
 	}
 	if (intrinsic === PaintType.HTML) {
 		renderHtmlFill(world, entity, entity);
+		return;
+	}
+	if (intrinsic === PaintType.WAVEFORM) {
+		if (world.get(Mode)?.value === 'realtime' && getParentNode(entity) === null) {
+			renderWaveform(world, entity, entity);
+		}
 		return;
 	}
 
@@ -304,7 +350,7 @@ function renderHtmlFill(world: World, entity: Entity, source: Entity): void {
 	const eid = entity.id();
 
 	ctx.save();
-	ctx.clip();
+	ctx.clip(shapeFillRule);
 
 	const width = computed.width[eid]!;
 	const height = computed.height[eid]!;
@@ -349,7 +395,7 @@ function renderMedia(world: World, entity: Entity, source: Entity, kind: MediaKi
 
 	if (frame) {
 		ctx.save();
-		ctx.clip();
+		ctx.clip(shapeFillRule);
 
 		const mode = store(world, ScaleMode).value[source.id()] ?? 0;
 		const [dx, dy, sw, sh] = getScaledImageProps(mode, frame.width, frame.height, w, h);
@@ -358,7 +404,7 @@ function renderMedia(world: World, entity: Entity, source: Entity, kind: MediaKi
 		ctx.restore();
 	} else if (failed) {
 		ctx.fillStyle = MISSING_ASSET_COLOR;
-		ctx.fill();
+		ctx.fill(shapeFillRule);
 	}
 }
 
@@ -395,23 +441,25 @@ export function renderFills(world: World, entity: Entity): void {
 			const canvas = fill.get(Host)?.element;
 			if (canvas instanceof HTMLCanvasElement) {
 				ctx.save();
-				ctx.clip();
+				ctx.clip(shapeFillRule);
 				ctx.drawImage(canvas, 0, 0, computed.width[eid]!, computed.height[eid]!);
 				ctx.restore();
 			}
 		} else if (paint === PaintType.SOLID) {
 			ctx.fillStyle = colorToHex(computed.color[fid]!);
-			ctx.fill();
+			ctx.fill(shapeFillRule);
 		} else if (paint === PaintType.LINEAR_GRADIENT) {
 			const w = computed.width[eid]!;
 			const h = computed.height[eid]!;
-			ctx.fillStyle = createLinearGradient(world, fill, ctx, w, h);
-			ctx.fill();
+			fillLinearGradient(world, fill, ctx, w, h, shapeFillRule);
 		} else if (paint === PaintType.RADIAL_GRADIENT) {
 			const w = computed.width[eid]!;
 			const h = computed.height[eid]!;
-			ctx.fillStyle = createRadialGradient(world, fill, ctx, w, h);
-			ctx.fill();
+			fillRadialGradient(world, fill, ctx, w, h, shapeFillRule);
+		} else if (paint === PaintType.ANGULAR_GRADIENT) {
+			const w = computed.width[eid]!;
+			const h = computed.height[eid]!;
+			fillAngularGradient(world, fill, ctx, w, h, shapeFillRule);
 		} else if (paint === PaintType.WAVEFORM) {
 			renderWaveform(world, entity, fill);
 		} else if (paint === PaintType.SHADER) {
@@ -534,7 +582,7 @@ function renderShaderFill(world: World, entity: Entity, fills: Entity[], index: 
 	const time = (computed.localTime[eid] ?? 0) / fps;
 
 	ctx.save();
-	ctx.clip();
+	ctx.clip(shapeFillRule);
 	host.draw(ctx, w, h, input?.source ?? null, input?.width ?? 1, input?.height ?? 1, fit, time, store(world, Shader).uniforms[fills[index]!.id()] ?? null);
 	ctx.restore();
 }
@@ -566,7 +614,7 @@ function renderShadows(world: World, entity: Entity): void {
 		ctx.shadowBlur = computed.blur[sid]! * shadowScale;
 		ctx.shadowOffsetX = computed.offsetX[sid]! * shadowScale;
 		ctx.shadowOffsetY = computed.offsetY[sid]! * shadowScale;
-		ctx.fill();
+		ctx.fill(shapeFillRule);
 	}
 
 	ctx.restore();
@@ -575,12 +623,14 @@ function renderShadows(world: World, entity: Entity): void {
 function renderStrokes(world: World, entity: Entity): void {
 	const ctx = getCtx(world);
 	const eid = entity.id();
-	const strokes = store(world, Cache).strokes[eid];
+	const cache = store(world, Cache);
+	const strokes = cache.strokes[eid];
 	if (!strokes) return;
 
 	const computed = store(world, Computed);
 	const blendMode = store(world, BlendMode);
-	const paintStore = store(world, Paint);
+	const w = computed.width[eid]!;
+	const h = computed.height[eid]!;
 
 	for (const stroke of strokes) {
 		if (stroke.has(Hidden)) continue;
@@ -594,37 +644,164 @@ function renderStrokes(world: World, entity: Entity): void {
 		}
 
 		applyStrokeStyle(ctx, world, stroke);
-		ctx.globalAlpha = savedAlpha * computed.opacity[sid]!;
+		const strokeAlpha = savedAlpha * computed.opacity[sid]!;
+		const strokeCO = ctx.globalCompositeOperation;
 
-		const paintType = paintStore.value[sid];
-		if (paintType === PaintType.LINEAR_GRADIENT) {
-			const w = computed.width[eid]!;
-			const h = computed.height[eid]!;
-			ctx.strokeStyle = createLinearGradient(world, stroke, ctx, w, h);
-		} else if (paintType === PaintType.RADIAL_GRADIENT) {
-			const w = computed.width[eid]!;
-			const h = computed.height[eid]!;
-			ctx.strokeStyle = createRadialGradient(world, stroke, ctx, w, h);
-		} else {
-			ctx.strokeStyle = colorToHex(computed.color[sid]!);
+		// The stroke's own paint (its `color`) is intrinsic, beneath its paint
+		// children; each child draws through the same line at its own opacity.
+		ctx.globalAlpha = strokeAlpha;
+		strokeWithPaint(world, ctx, stroke, w, h);
+
+		for (const paint of cache.fills[sid] ?? NO_STROKE_PAINTS) {
+			if (paint.has(Hidden)) continue;
+			const pid = paint.id();
+			const pbi = blendMode.value[pid] ?? 0;
+
+			ctx.globalCompositeOperation = pbi !== 0 ? COMPOSITE_OPERATIONS[pbi]! : strokeCO;
+			ctx.globalAlpha = strokeAlpha * computed.opacity[pid]!;
+			strokeWithPaint(world, ctx, paint, w, h);
 		}
-		ctx.stroke();
 
 		ctx.globalCompositeOperation = savedCO;
 		ctx.globalAlpha = savedAlpha;
 	}
+
+	// Not to dash the node's children, nor its shimmer.
+	clearLineDash(ctx);
+}
+
+// Stable empty list for strokes without paint children, so the render loop allocates none.
+const NO_STROKE_PAINTS: Entity[] = [];
+
+/**
+ * Strokes the current path, in the line style already set on `ctx`, with a
+ * paint in a `w` × `h` box: a stroke's own paint or one of its paint
+ * children. A solid paints only with a `Color`, so a stroke whose color is
+ * unset draws nothing of its own.
+ */
+function strokeWithPaint(world: World, ctx: Ctx2D, paint: Entity, w: number, h: number): void {
+	const paintType = paint.has(Paint) ? store(world, Paint).value[paint.id()] : undefined;
+
+	if (paintType === PaintType.LINEAR_GRADIENT) {
+		strokeLinearGradient(world, paint, ctx, w, h);
+	} else if (paintType === PaintType.RADIAL_GRADIENT) {
+		strokeRadialGradient(world, paint, ctx, w, h);
+	} else if (paintType === PaintType.ANGULAR_GRADIENT) {
+		strokeAngularGradient(world, paint, ctx, w, h);
+	} else if (paint.has(Color)) {
+		ctx.strokeStyle = colorToHex(store(world, Computed).color[paint.id()]!);
+		ctx.stroke();
+	}
 }
 
 /**
- * The pulse a node waiting on a generation is filled with
+ * What covers a node's fills while they cannot be shown: the pulse while a
+ * generation is filling it in, the still fill when its source failed.
  */
-function renderGenerating(world: World, entity: Entity): void {
-	const errored = getSourceFailure(entity) !== undefined;
-	if (!errored && !isGenerating(entity)) return;
+function renderPendingFill(world: World, entity: Entity): void {
+	const generating = isGenerating(entity);
+	if (!generating && !getSourceFailure(entity)) return;
 
 	const ctx = getCtx(world);
-	ctx.fillStyle = errored ? FAILED_COLOR : getGeneratingColor(world);
-	ctx.fill();
+	ctx.fillStyle = generating ? getGeneratingColor(world) : FAILED_COLOR;
+	ctx.fill(shapeFillRule);
+}
+
+const SHIMMER_PERIOD = 2400; // ms per turn of the highlights
+const SHIMMER_SWEEP = 1400; // ms the light takes to cross the scene after each turn
+const SHIMMER_BAND = 1; // width of the light, in diagonals of the scene
+const SHIMMER_PRIMARY = [0, 140, 255] as const; // #008CFF
+const SHIMMER_DEPTH = 0.7; // how far the highlights darken toward the stage background
+const SHIMMER_SWEEP_OPACITY = 0.2;
+
+/**
+ * The outline of a scene that work is running on (see `Shimmering`), over
+ * everything the scene draws: a primary blue stroke along its edge with two
+ * highlights travelling around it that darken toward the stage background,
+ * and after each turn a band of translucent primary blue sweeping across the
+ * scene, corner to corner. Counted on the world's clock from when
+ * the work began. The editor's only, never drawn into an export. The stroke
+ * keeps its width on screen whatever the zoom, so it is drawn in device
+ * pixels from the scene's corners.
+ */
+function renderShimmer(world: World, entity: Entity): void {
+	if (!entity.has(Shimmering) || !entity.has(Scene)) return;
+
+	const ctx = getCtx(world);
+	const computed = store(world, Computed);
+	const w = computed.width[entity.id()]!;
+	const h = computed.height[entity.id()]!;
+	const resolution = world.get(RenderSurface)?.resolution ?? 1;
+
+	const m = ctx.getTransform();
+	const quad = [[0, 0], [w, 0], [w, h], [0, h]].map(([x, y]) => m.transformPoint({ x, y }));
+	const cx = (quad[0]!.x + quad[1]!.x + quad[2]!.x + quad[3]!.x) / 4;
+	const cy = (quad[0]!.y + quad[1]!.y + quad[2]!.y + quad[3]!.y) / 4;
+	const trace = () => {
+		ctx.beginPath();
+		ctx.moveTo(quad[0]!.x, quad[0]!.y);
+		ctx.lineTo(quad[1]!.x, quad[1]!.y);
+		ctx.lineTo(quad[2]!.x, quad[2]!.y);
+		ctx.lineTo(quad[3]!.x, quad[3]!.y);
+		ctx.closePath();
+	};
+
+	const elapsed = Math.max(0, (world.get(Time)?.now ?? 0) - entity.get(Shimmering)!.start);
+	const turn = elapsed % SHIMMER_PERIOD;
+
+	ctx.save();
+	ctx.resetTransform();
+	ctx.globalAlpha = 1;
+	ctx.globalCompositeOperation = 'source-over';
+	ctx.filter = 'none';
+
+	if (elapsed >= SHIMMER_PERIOD && turn < SHIMMER_SWEEP) {
+		// The band's centre goes from half a band before the first corner to
+		// half a band past the opposite one: it enters and leaves the scene
+		// exactly, and is on it the whole sweep.
+		const t = turn / SHIMMER_SWEEP;
+		const eased = (1 - Math.cos(Math.PI * t)) / 2;
+		const centre = -SHIMMER_BAND / 2 + eased * (1 + SHIMMER_BAND);
+		const dx = quad[2]!.x - quad[0]!.x;
+		const dy = quad[2]!.y - quad[0]!.y;
+		const from = centre - SHIMMER_BAND / 2;
+		const to = centre + SHIMMER_BAND / 2;
+		const light = ctx.createLinearGradient(
+			quad[0]!.x + dx * from, quad[0]!.y + dy * from,
+			quad[0]!.x + dx * to, quad[0]!.y + dy * to,
+		);
+		const [r, g, b] = SHIMMER_PRIMARY;
+		// Full strength across the middle of the band, fading at its edges.
+		light.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0)`);
+		light.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${SHIMMER_SWEEP_OPACITY})`);
+		light.addColorStop(0.7, `rgba(${r}, ${g}, ${b}, ${SHIMMER_SWEEP_OPACITY})`);
+		light.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+		trace();
+		ctx.fillStyle = light;
+		ctx.fill();
+	}
+
+	const background = world.get(Root)!.get(Background)?.value ?? 0;
+	const backdrop = [(background >> 16) & 0xff, (background >> 8) & 0xff, background & 0xff];
+	const primary = `rgb(${SHIMMER_PRIMARY.join(', ')})`;
+	const dark = `rgb(${SHIMMER_PRIMARY.map((channel, i) => Math.round(channel + (backdrop[i]! - channel) * SHIMMER_DEPTH)).join(', ')})`;
+
+	const ring = ctx.createConicGradient(turn / SHIMMER_PERIOD * Math.PI * 2, cx, cy);
+	for (const start of [0, 0.5]) {
+		ring.addColorStop(start, primary);
+		ring.addColorStop(start + 0.12, dark);
+		ring.addColorStop(start + 0.24, primary);
+	}
+	ring.addColorStop(1, primary);
+
+	trace();
+	ctx.strokeStyle = ring;
+	ctx.lineWidth = Math.round(2 * resolution);
+	ctx.shadowColor = primary;
+	ctx.shadowBlur = 8 * resolution;
+	ctx.stroke();
+	ctx.restore();
 }
 
 // ── WAVEFORM paint ─────────────────────────────────────
@@ -652,7 +829,7 @@ function renderWaveform(world: World, entity: Entity, fill: Entity): void {
 	const h = computed.height[entity.id()]!;
 
 	ctx.save();
-	ctx.clip();
+	ctx.clip(shapeFillRule);
 
 	// Background
 	ctx.fillStyle = WAVEFORM_BG_COLOR;
@@ -690,11 +867,11 @@ function renderWaveform(world: World, entity: Entity, fill: Entity): void {
 }
 
 function renderShapeNode(world: World, entity: Entity): void {
-	drawRectPath(world, entity);
+	drawShapePath(world, entity);
 	renderShadows(world, entity);
 	renderIntrinsicFill(world, entity);
 	renderFills(world, entity);
-	renderGenerating(world, entity);
+	renderPendingFill(world, entity);
 	renderStrokes(world, entity);
 }
 
@@ -846,6 +1023,8 @@ export function renderNode(world: World, entity: Entity): void {
 		renderContent(world, entity, buildEffects(world, entity));
 	}
 
+	renderShimmer(world, entity);
+
 	ctx.restore();
 }
 
@@ -854,9 +1033,9 @@ function clipTo(world: World, clipPath: Entity): void {
 	const ctx = getCtx(world);
 	ctx.save();
 	setWorldTransform(world, ctx, clipPath);
-	drawRectPath(world, clipPath);
+	drawShapePath(world, clipPath);
 	ctx.restore();
-	ctx.clip();
+	ctx.clip(shapeFillRule);
 }
 
 function setWorldTransform(world: World, ctx: Ctx2D, entity: Entity): void {
@@ -888,7 +1067,7 @@ function renderContent(world: World, entity: Entity, effects: string | null): vo
 		renderCaptionNode(world, entity);
 	} else if (store(world, Geometry).value[eid] === GeometryType.TEXT) {
 		renderTextNode(world, entity);
-	} else if (store(world, Geometry).value[eid] === GeometryType.RECT) {
+	} else if (isShapeGeometry(store(world, Geometry).value[eid])) {
 		renderShapeNode(world, entity);
 	}
 
@@ -897,7 +1076,7 @@ function renderContent(world: World, entity: Entity, effects: string | null): vo
 	if (children.length) {
 		if (entity.has(ClipsContent)) {
 			ctx.save();
-			ctx.clip();
+			ctx.clip(shapeFillRule);
 		}
 
 		for (const child of children) {
@@ -1109,7 +1288,7 @@ function applyMaskedEffect(world: World, entity: Entity, pass: Extract<EffectPas
 			coverage.ctx.fillRect(0, 0, width, height);
 			coverage.ctx.restore();
 		} else {
-			drawOnto(coverage.ctx, () => drawRectPath(world, entity));
+			drawOnto(coverage.ctx, () => drawShapePath(world, entity));
 			coverage.ctx.fill();
 		}
 		for (const mask of pass.masks) {
@@ -1184,9 +1363,9 @@ function drawMaskRemoval(world: World, entity: Entity, mask: Entity, layer: Laye
 			ctx.restore();
 		}
 		ctx.setTransform(placement);
-		drawOnto(ctx, () => drawRectPath(world, target));
+		drawOnto(ctx, () => drawShapePath(world, target));
 	} else {
-		drawOnto(ctx, () => drawRectPath(world, entity));
+		drawOnto(ctx, () => drawShapePath(world, entity));
 		if (!inverted) {
 			ctx.fillStyle = '#000000';
 			ctx.fill();
@@ -1273,7 +1452,7 @@ function pixelate(world: World, entity: Entity, target: Layer, source: Offscreen
 	const out = target.ctx;
 	out.save();
 	out.setTransform(local);
-	drawOnto(out, () => drawRectPath(world, entity));
+	drawOnto(out, () => drawShapePath(world, entity));
 	out.clip();
 	out.filter = 'none';
 	out.globalAlpha = 1;
