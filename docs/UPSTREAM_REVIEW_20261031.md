@@ -20,13 +20,48 @@ PureCut is adapted from [diffusionstudio/editor](https://github.com/diffusionstu
 | 4e64fd8 (runtime part) | Guinea and Spotlight caption highlights set a colour the text did not draw; keyframed text shadows, strokes and fills drew their authored colour instead of the animated one. | Ported to PureCut's older text renderer (no stroke paint children). The paint-keyframe inspector rework in the same commit is not taken. |
 | b8f0615 (detector only) | Pause cleanup's silences came from a fixed loudness threshold over the waveform picture drawn for the agent, so on a long recording they were only as precise as one picture column, about half a second for an hour. A noisy room also read as one long sound. | `silence/detect.ts` and its worker, unchanged, as `purecut/speech/silence-detect.ts` and `silence-worker.ts`. The pause review and `proposeCutSpeechCleanup` now find silences every 10 ms, against each recording's own noise floor, with no padding (`pauseCuts` keeps the retained pause and the margin around words). Music or steady noise has no silence to cut. |
 
+## Shapes and vector paths (feat/shapes)
+
+The engine packages (`packages/runtime`, `jsx`, `reconciler`) were merged three-way from upstream eeb02386 (10 October, the `<path>` primitive), taking PureCut's original baseline, b317412, as the common ancestor. That merge brings, as one piece:
+
+- The new elements: `<ellipse>`, `<polygon pointCount>` and `<path d viewBox fillRule trimStart trimEnd trimOffset>`, with `d` keyframes that morph the outline. They are drawn, hit-tested and serialized, and work as clip paths.
+- Strokes with `cap` and `dash`/`dashGap`/`dashOffset` (dashOffset can be keyframed), and stroke paint children.
+- `<angularGradientPaint>`, and gradient geometry (`x1…y2`, `cx/cy/rx/ry`) as keyframeable props.
+- `pivotX`/`pivotY`.
+- Upstream's engine fixes from the same window.
+
+It stops before 8a1313b, where upstream turns clip paths and masks into containers of shapes. That redesign would replace PureCut's own masks (`follow`, pixelate, the Clip path tool), so it waits for the masks family.
+
+Kept from PureCut through the merge:
+
+- Its hosted-generation hooks (`Ai`, `generate.*`, transcription requests, `SourceError.generated`), which upstream removed.
+- Its bundled fonts: upstream fetches Google Fonts from an observer, and PureCut's caption styles still load their bundled faces.
+- Its masks: `follow` and pixelate. A masked node's box is drawn as its shape.
+- Its asset library. `entityAnchor` stays beside upstream's `entityPivot`.
+
+Editor:
+
+- The draw overlay draws ellipses and polygons.
+- The toolbar's shape button has a menu (Rectangle R, Ellipse O, Polygon) and remembers the last shape picked.
+- Appearance gains a polygon's Corners.
+- The stroke inspector gains Line (solid or dashed, with dash and gap lengths) and Cap. Its icons are upstream's.
+- The gradient picker offers Angular.
+
+Not yet:
+
+- The Pen and path-edit tool (upstream 5552978, e13b7f9, 3dbdb22, 2c736e5's canvas parts). It needs upstream's draw-tool and path-editor state, its HUD and its pointer dispatch, so a path is written in the source for now.
+- The on-canvas gradient handles (acb7092's `gradient-tool.ts`).
+- Stroke paint children in the inspector.
+
+Checks: `scripts/browser-shapes-check.ts`, run by `test:purecut`, renders an ellipse, a pentagon, a dashed path and an angular gradient through the export and measures the frame (`/tmp/purecut-visual/shapes.png`).
+
 ## Not taken, by feature family
 
 Most of upstream's new work builds on features PureCut has not adopted. In particular, the vector shapes and the inspector rework from v0.206–v0.210 were deferred on 7 October. Each family below would come in as a whole, with its prerequisites, as its own change.
 
 | Family | Upstream commits | Why not now | What it needs |
 | --- | --- | --- | --- |
-| Shapes and vector paths: `<ellipse>`, `<polygon>`, `<path>` with vertex editing, pivot, stroke dash and caps, angular gradients, paint keyframes | eaacc15, 5552978, e13b7f9, 3dbdb22, 2c736e5, dd49464, d519017, d6c76e6, bdbe912, acb7092, 09f227f, 747a719, 4e64fd8 (UI), 8a1313b | PureCut's runtime and JSX have no ellipse, polygon or path elements, and no vector path traits. These came upstream between v0.206 and v0.210 and were not taken. | A runtime, reconciler and JSX catch-up, then the drawing tools and stroke inspector in PureCut's own panels. |
+| Pen and path editing; on-canvas gradient handles | 5552978, e13b7f9, 3dbdb22, 2c736e5 (canvas), acb7092 (`gradient-tool.ts`) | The engine side is taken (above). The tools need upstream's draw-tool and path-editor state, HUD and pointer dispatch, which PureCut's editor does not have. | A port of `path-tool.tsx` and `gradient-tool.ts` onto PureCut's input system and overlay. |
 | Masks from any shape (the Mask tool replaces the Clip path tool; "Use as mask"; mask `type` channel) | 075732f, 783edc2, 6a45d56, e2d070f | Needs the shapes family first. It would also replace PureCut's Clip path tool, which was ported on 8 October. | The shapes family, then a decision on retiring the Clip path tool. |
 | Silence removal as a command | b8f0615 (command and UI), b01a79a | PureCut already shortens pauses inside its transcript cleanup, with review before anything is cut, and never cuts words; a second command would duplicate it. Its detector is taken (above). | Nothing. |
 | Right-click menus and arranging: node context menu, layer toggles, clean-up into a grid, multi-select of assets and folders, moving and renaming folders, pasting media from the clipboard, middle-ellipsis names | d3d2a0b, 6c6349a, efbc257, 7760cb5, fb8a924, c897d7b, 53aa33e, 893eab6, 82ebd30, 8d657e5, 7b3e1fc, 78b0580, d68a336, 8107138, 9ccaac4, 090669c, 9d8327b, e53775d, 2609b28, 5ac1c05 (taken) | Built on upstream's new command system and its menu components, and PureCut's sidebar and canvas menus are its own. | Port the engine actions (`align.ts` grid clean-up, clipboard import, folder moves) behind PureCut's existing menus. |

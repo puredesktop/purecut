@@ -46,11 +46,13 @@ import type { Entity } from "koota";
 
 export type GradientPickerProps = {
   fill: Entity;
-  /** Swaps the gradient for one of the other kind, which is another element. */
-  onChangeKind(radial: boolean): void;
+  /** Swaps the gradient for one of another kind, which is another element. */
+  onChangeKind(kind: GradientKind): void;
 };
 
-const GRADIENT_STYLE_OPTIONS = ["Linear", "Radial"] as const;
+export type GradientKind = "linear" | "radial" | "angular";
+
+const GRADIENT_STYLE_OPTIONS = ["Linear", "Radial", "Angular"] as const;
 type GradientStyleOption = (typeof GRADIENT_STYLE_OPTIONS)[number];
 
 /** `<colorStop>`'s and `<linearGradientPaint>`'s defaults. */
@@ -300,7 +302,7 @@ export function GradientFillPicker(props: GradientPickerProps) {
 
   const handleGradientStyleChange = (style: GradientStyleOption | null) => {
     if (style === null) return;
-    props.onChangeKind(style === "Radial");
+    props.onChangeKind(style === "Radial" ? "radial" : style === "Angular" ? "angular" : "linear");
   };
 
   const handleRotationChange = (value: number) => {
@@ -308,7 +310,7 @@ export function GradientFillPicker(props: GradientPickerProps) {
   };
 
   const gradientLabel = createMemo(() =>
-    paint()?.value === PaintType.RADIAL_GRADIENT ? "Radial" : "Linear",
+    paint()?.value === PaintType.RADIAL_GRADIENT ? "Radial" : paint()?.value === PaintType.ANGULAR_GRADIENT ? "Angular" : "Linear",
   );
 
   const gradientBackground = createMemo(() => {

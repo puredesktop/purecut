@@ -126,6 +126,7 @@ try {
       await (await import('/scripts/browser-caption-render-check.ts')).checkCaptionRendering(true);
       const captionColours = await (await import('/scripts/browser-caption-preset-colour-check.ts')).checkCaptionPresetColours();
       globalThis.__captionColours = captionColours;
+      globalThis.__shapes = await (await import('/scripts/browser-shapes-check.ts')).checkShapes();
       await (await import('/scripts/browser-video-speed-check.ts')).checkVideoSpeedExport();
       await (await import('/scripts/browser-export-cancel-check.tsx')).checkExportCancel(stage => window.inspectExportCancel(stage));
       await (await import('/scripts/browser-editing-check.ts')).checkEverydayEditing();
@@ -522,6 +523,9 @@ try {
   for (const [name, url] of Object.entries(footage))
     await writeFile(`/tmp/purecut-visual/caption-${name}.png`, Buffer.from(url.split(',')[1], 'base64'));
   console.log(`PASS: caption footage previews (${Object.keys(footage).length}) in /tmp/purecut-visual`);
+  const shapes = await page.evaluate(() => globalThis.__shapes);
+  await writeFile('/tmp/purecut-visual/shapes.png', Buffer.from(shapes.frame.split(',')[1], 'base64'));
+  console.log(`PASS: shapes (ellipse, pentagon, ${shapes.dashes} dashes on a path, angular gradient) in /tmp/purecut-visual/shapes.png`);
   console.log(`PASS: caption preset colours ${await page.evaluate(() => JSON.stringify(globalThis.__captionColours))} with ${blockedFontRequests.length} remote font request(s) blocked`);
 } finally {
   await browser?.close();

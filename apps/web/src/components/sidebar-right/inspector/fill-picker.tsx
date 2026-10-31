@@ -27,6 +27,7 @@ import {
   ImagePaint,
   LinearGradientPaint,
   RadialGradientPaint,
+  AngularGradientPaint,
   SolidPaint,
   VideoPaint,
 } from "@diffusionstudio/reconciler";
@@ -35,7 +36,7 @@ import { useEditor } from "@/engine/hooks";
 import { BLEND_MODE_ORDER, BLEND_MODE_SEPARATORS, blendModeName, displayBlendMode } from "./blend-modes";
 import { readStopProps } from "./gradient-stops";
 import { SolidFillPicker } from "./solid-picker";
-import { GradientFillPicker } from "./gradient-picker";
+import { GradientFillPicker, type GradientKind } from "./gradient-picker";
 import { AssetFillPicker } from "./asset-picker";
 
 import type { Fit } from "@diffusionstudio/jsx";
@@ -84,6 +85,7 @@ export function getFillTab(paint: PaintType): FillTab {
   if (paint === PaintType.SOLID) return "solid";
   if (paint === PaintType.LINEAR_GRADIENT) return "gradient";
   if (paint === PaintType.RADIAL_GRADIENT) return "gradient";
+  if (paint === PaintType.ANGULAR_GRADIENT) return "gradient";
   return "asset";
 }
 
@@ -146,17 +148,18 @@ export function FillPicker(props: FillPickerProps) {
   };
 
   /**
-   * Swaps a linear gradient for a radial one (or back). The two are separate
-   * elements, so the stops and the rotation are written out onto the new one
-   * rather than carried by it.
+   * Swaps a gradient for one of another kind: linear, radial or angular.
+   * Each is its own element, so the stops and the rotation are written out
+   * onto the new one rather than carried by it.
    */
-  const handleGradientKindChange = (radial: boolean) => {
-    const isRadial = paintType() === PaintType.RADIAL_GRADIENT;
-    if (radial === isRadial) return;
+  const handleGradientKindChange = (kind: GradientKind) => {
+    const current: GradientKind = paintType() === PaintType.RADIAL_GRADIENT ? "radial"
+      : paintType() === PaintType.ANGULAR_GRADIENT ? "angular" : "linear";
+    if (kind === current) return;
 
     const stops = readStopProps(world, props.fill);
     const rotation = props.fill.get(Rotation)?.value ?? 0;
-    const Element = radial ? RadialGradientPaint : LinearGradientPaint;
+    const Element = kind === "radial" ? RadialGradientPaint : kind === "angular" ? AngularGradientPaint : LinearGradientPaint;
 
     replaceFill(() => (
       <Element {...(rotation === 0 ? {} : { rotation })}>

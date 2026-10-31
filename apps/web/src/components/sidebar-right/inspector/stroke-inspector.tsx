@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { createMemo, createSignal } from "solid-js";
+import { Show, createMemo, createSignal } from "solid-js";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Icon } from "@/components/ui/icon";
@@ -19,12 +19,16 @@ import { ColorOpacityPicker } from "@/components/ui/color-opacity-picker";
 import { ControlledTextField } from "@/components/ui/text-field";
 import { SegmentedIconTabs } from "@/components/ui/segmented-icon-tabs";
 import { Keyframe } from "@/components/ui/keyframe";
-import { useTrait, useWorld } from "@diffusionstudio/koota-solid";
-import { Computed, StrokeJoin, StrokeStyle, colorToHex } from "@diffusionstudio/runtime";
+import { useHas, useTrait, useWorld } from "@diffusionstudio/koota-solid";
+import { Computed, StrokeCap, StrokeDash, StrokeJoin, StrokeStyle, colorToHex } from "@diffusionstudio/runtime";
 import { useDerived, useEditor } from "@/engine/hooks";
-import { syncKeyframe } from "@/engine/keyframes";
+import { removeKeyframeTrack, syncKeyframe } from "@/engine/keyframes";
 
-import type { StrokeJoin as StrokeJoinName } from "@diffusionstudio/jsx";
+import type {
+  AnimatableProperty,
+  StrokeCap as StrokeCapName,
+  StrokeJoin as StrokeJoinName,
+} from "@diffusionstudio/jsx";
 import type { Entity } from "koota";
 
 const JOIN_SEGMENTS: { value: StrokeJoinName; icon: string; label: string }[] = [
@@ -32,6 +36,31 @@ const JOIN_SEGMENTS: { value: StrokeJoinName; icon: string; label: string }[] = 
   { value: "bevel", icon: "line-join-bevel", label: "Bevel" },
   { value: "round", icon: "line-join-round", label: "Round" },
 ];
+
+const CAP_SEGMENTS: { value: StrokeCapName; icon: string; label: string }[] = [
+  { value: "butt", icon: "line-cap-butt", label: "Butt" },
+  { value: "round", icon: "line-cap-round", label: "Round" },
+  { value: "square", icon: "line-cap-square", label: "Square" },
+];
+
+const CAP_NAMES: Record<StrokeCap, StrokeCapName> = {
+  [StrokeCap.BUTT]: "butt",
+  [StrokeCap.ROUND]: "round",
+  [StrokeCap.SQUARE]: "square",
+};
+
+type LineStyle = "solid" | "dashed";
+
+const LINE_SEGMENTS: { value: LineStyle; icon: string; label: string }[] = [
+  { value: "solid", icon: "stroke.solid", label: "Solid" },
+  { value: "dashed", icon: "stroke.dashed", label: "Dashed" },
+];
+
+/** The props a dashed line adds, all cleared when it goes back to solid. */
+const DASH_PROPS: AnimatableProperty[] = ["dash", "dashGap", "dashOffset"];
+
+/** The dash a solid line takes when it is switched to dashed, its gap the same. */
+const DASHED_DASH = 10;
 
 const JOIN_NAMES: Record<StrokeJoin, StrokeJoinName> = {
   [StrokeJoin.MITER]: "miter",
@@ -52,10 +81,9 @@ type StrokeInspectorProps = {
 
 /**
  * One `<stroke>`: its paint (color and opacity) and its line style
- * (`width`/`join`/`miterLimit`). A stroke is a solid color and takes no paint
- * children, so the color half is the color picker alone, with no gradient or
- * asset tab. `cap` has no control yet: it only shows on open paths (text
- * glyphs) and there are no icons for it.
+ * (`width`/`cap`/`join`/`miterLimit`, and when dashed `dash`/`dashGap`).
+ * The color half is the color picker alone, with no gradient or asset tab.
+ * A cap shows on the ends of open paths and on each dash.
  */
 export function StrokeInspector(props: StrokeInspectorProps) {
   const world = useWorld();
@@ -72,6 +100,11 @@ export function StrokeInspector(props: StrokeInspectorProps) {
   const style = useTrait(() => props.stroke, StrokeStyle);
 
   const join = createMemo(() => JOIN_NAMES[style()?.join ?? StrokeJoin.MITER]);
+  const cap = createMemo(() => CAP_NAMES[style()?.cap ?? StrokeCap.BUTT]);
+  const isDashed = useHas(() => props.stroke, StrokeDash);
+  const lineStyle = (): LineStyle => (isDashed() ? "dashed" : "solid");
+  const dash = useDerived(() => props.stroke.get(Computed)?.dash ?? 0);
+  const dashGap = useDerived(() => props.stroke.get(Computed)?.dashGap ?? 0);
   const miterLimit = () => style()?.miterLimit ?? DEFAULT_MITER_LIMIT;
 
   /** A stroke's color is required, never unset. */
@@ -96,6 +129,36 @@ export function StrokeInspector(props: StrokeInspectorProps) {
 
   const editJoin = (value: StrokeJoinName) => {
     editor.editProperty(props.stroke, "join", value === "miter" ? false : value);
+  };
+
+  const editCap = (value: StrokeCapName) => {
+    editor.editProperty(props.stroke, "cap", value === "butt" ? false : value);
+  };
+
+  /** Dashed starts as equal dashes and gaps; solid clears every dash prop and its keyframes. */
+  const editLineStyle = (value: LineStyle) => {
+    if (value === lineStyle()) return;
+    if (value === "dashed") {
+      editor.editProperty(props.stroke, "dash", DASHED_DASH);
+      editor.editProperty(props.stroke, "dashGap", DASHED_DASH);
+      return;
+    }
+    for (const property of DASH_PROPS) {
+      removeKeyframeTrack(world, editor, props.stroke, property);
+      editor.editProperty(props.stroke, property, false);
+    }
+  };
+
+  // The dash fields write even their defaults: unsetting the last of them
+  // would make the line solid again.
+  const editDash = (value: number) => {
+    editor.editProperty(props.stroke, "dash", value);
+    syncKeyframe(world, editor, props.stroke, "dash", value);
+  };
+
+  const editDashGap = (value: number) => {
+    editor.editProperty(props.stroke, "dashGap", value);
+    syncKeyframe(world, editor, props.stroke, "dashGap", value);
   };
 
   const editMiterLimit = (value: number) => {
@@ -151,6 +214,51 @@ export function StrokeInspector(props: StrokeInspectorProps) {
               autoSelect
               limitEvents
               keyframe={<Keyframe target={props.stroke} property="width" />}
+            />
+          </ControlRow>
+
+          <ControlRow label="Line">
+            <SegmentedIconTabs
+              value={lineStyle}
+              onChange={editLineStyle}
+              items={LINE_SEGMENTS}
+              buttonClass="transition-colors"
+              iconClass="size-3.5 text-muted-foreground"
+            />
+          </ControlRow>
+
+          <Show when={isDashed()}>
+            <ControlRow label="Dash" contentClass="grid grid-cols-2 gap-2">
+              <ControlledTextField
+                value={dash()}
+                onNumber={editDash}
+                step={1}
+                min={0}
+                autoSelect
+                limitEvents
+                aria-label="Dash length"
+                keyframe={<Keyframe target={props.stroke} property="dash" />}
+              />
+              <ControlledTextField
+                value={dashGap()}
+                onNumber={editDashGap}
+                step={1}
+                min={0}
+                autoSelect
+                limitEvents
+                aria-label="Gap length"
+                keyframe={<Keyframe target={props.stroke} property="dashGap" />}
+              />
+            </ControlRow>
+          </Show>
+
+          <ControlRow label="Cap">
+            <SegmentedIconTabs
+              value={cap}
+              onChange={editCap}
+              items={CAP_SEGMENTS}
+              buttonClass="transition-colors"
+              iconClass="size-3.5 text-muted-foreground"
             />
           </ControlRow>
 

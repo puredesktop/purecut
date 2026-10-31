@@ -33,7 +33,9 @@ import {
   CornerRadius,
   Hidden,
   MixedCornerRadius,
+  PointCount,
   isAudio,
+  isPolygon,
   isRect,
 } from "@diffusionstudio/runtime";
 import { useDerived, useEditor } from "@/engine/hooks";
@@ -94,6 +96,9 @@ export function AppearanceSettings(props: AppearanceSettingsProps) {
   const mixedBR = useDerived(() => entity().get(Computed)?.cornerRadiusBottomRight ?? 0);
   const mixedBL = useDerived(() => entity().get(Computed)?.cornerRadiusBottomLeft ?? 0);
 
+  const pointCountTrait = useTrait(entity, PointCount);
+  const pointCount = () => pointCountTrait()?.value ?? 3;
+
   const [selectedBlendMode, setSelectedBlendMode] = createSignal(blendMode());
   const [radiusMode, setRadiusMode] = createSignal<RadiusMode>(entity().has(MixedCornerRadius) ? 'separate' : 'uniform');
 
@@ -126,6 +131,12 @@ export function AppearanceSettings(props: AppearanceSettingsProps) {
     if (selectedBlendMode() !== blendMode()) {
       previewBlendMode(selectedBlendMode());
     }
+  };
+
+  /** At least three corners; three is the default and unsets the prop. */
+  const handlePointCountChange = (v: number) => {
+    const count = Math.max(3, Math.round(v));
+    editor.editProperty(entity(), 'pointCount', count === 3 ? false : count);
   };
 
   const handleVisibilityChange = () => {
@@ -242,6 +253,20 @@ export function AppearanceSettings(props: AppearanceSettingsProps) {
           </Select>
         </div>
       </ControlRow>
+
+      <Show when={isPolygon(entity())}>
+        <ControlRow label="Corners">
+          <ControlledTextField
+            value={pointCount()}
+            autoSelect
+            step={1}
+            min={3}
+            onNumber={handlePointCountChange}
+            sliderEnabled
+            limitEvents
+          />
+        </ControlRow>
+      </Show>
 
       <Show when={isRect(entity()) && !isAudio(entity())}>
         <ContextMenu>
