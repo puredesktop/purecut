@@ -371,3 +371,57 @@ assert.deepEqual(
   'a word belongs to the range holding its middle',
 )
 console.log('PASS highlight names: excerpt, cleaning, empty and duplicate names')
+
+// Pause cleanup's silences (purecut/speech/silence-detect.ts, from upstream
+// diffusionstudio/editor b8f0615): found against the recording's own noise
+// floor, so a quiet room and a noisy one are cut alike.
+{
+  const detect = await import(
+    `data:text/javascript;base64,${Buffer.from(
+      (await build({ entryPoints: ['purecut/speech/silence-detect.ts'], bundle: true, write: false, platform: 'node', format: 'esm' })).outputFiles[0].text,
+    ).toString('base64')}`
+  )
+  const rate = 16000
+  // Seconds of [sound?, length]: speech, a long pause, speech, a short pause
+  // (kept), speech, a pause with a click in it, speech.
+  const plan = [[1, 1], [0, 1.2], [1, 1], [0, 0.3], [1, 1], [0, 0.7], [1, 0.03], [0, 0.8], [1, 1]]
+  const record = (noiseDb, soundDb, seed = 7) => {
+    let state = seed
+    const random = () => ((state = (state * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1
+    const noise = 10 ** (noiseDb / 20) * Math.sqrt(3)
+    const sound = 10 ** (soundDb / 20) * Math.SQRT2
+    const samples = []
+    for (const [on, seconds] of plan)
+      for (let i = 0; i < Math.round(seconds * rate); i++) {
+        const t = samples.length / rate
+        // A voice-like tone that wavers, over the room's noise.
+        const voice = on ? sound * Math.sin(2 * Math.PI * 220 * t) * (0.6 + 0.4 * Math.sin(2 * Math.PI * 4 * t)) : 0
+        samples.push(voice + noise * random())
+      }
+    return Float32Array.from(samples)
+  }
+  const silencesOf = (samples, options = { ...detect.DEFAULT_SILENCE_OPTIONS, padding: 0 }) => {
+    const envelope = new detect.Envelope(0, samples.length / rate, options)
+    for (let at = 0; at < samples.length; at += 1024)
+      envelope.push(samples.subarray(at, at + 1024), 1, rate, at / rate)
+    envelope.flush()
+    return detect.findSilences(envelope, options)
+  }
+  const near = (actual, expected, label) => {
+    assert.equal(actual.length, expected.length, `${label}: ${JSON.stringify(actual)}`)
+    actual.forEach(([start, end], i) => {
+      assert.ok(Math.abs(start - expected[i][0]) < 0.06 && Math.abs(end - expected[i][1]) < 0.06, `${label}: ${JSON.stringify(actual)}`)
+    })
+  }
+  // The long pause, then the pause with the click folded into it; the 0.3 s pause stays.
+  const expected = [[1, 2.2], [4.5, 6.03]]
+  near(silencesOf(record(-65, -20)), expected, 'quiet room')
+  near(silencesOf(record(-38, -14)), expected, 'noisy room')
+  // Steady sound has no silence to tell apart; quiet throughout is silent throughout.
+  const tone = Float32Array.from({ length: rate * 4 }, (_, i) => 0.2 * Math.sin(2 * Math.PI * 330 * (i / rate)) * (0.8 + 0.2 * Math.sin(i / rate * 3)))
+  assert.deepEqual(silencesOf(tone), [], 'music or steady noise is never cut')
+  near(silencesOf(new Float32Array(rate * 2)), [[0, 2]], 'digital silence')
+  // Padding pulls a cut back from the sound either side.
+  near(silencesOf(record(-65, -20), detect.DEFAULT_SILENCE_OPTIONS), [[1.12, 2.08], [4.62, 5.91]], 'padding')
+}
+console.log('PASS pause silences: quiet and noisy rooms cut alike, clicks folded, short pauses and music kept')

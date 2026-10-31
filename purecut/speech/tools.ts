@@ -1,8 +1,8 @@
-import { waveformAsset } from '@diffusionstudio/runtime'
 import { request } from '../transport'
 import { flushPendingProjectEdits } from '@/projects/edits'
 import { speechScene, clips, assertCurrent, sceneNames } from './editor'
 import { loadTranscript } from './store'
+import { findAssetSilences } from './silences'
 import {
   cleanSceneName,
   fillerSuggestions,
@@ -98,10 +98,10 @@ export async function speechTool(name: string, args: Record<string, unknown>) {
       const minimum = args.minimumSeconds ?? 1.5, retain = args.retainSeconds ?? 0.3
       if (typeof minimum !== 'number' || typeof retain !== 'number' || !Number.isFinite(minimum) || !Number.isFinite(retain) || minimum <= 0 || retain < 0 || retain >= minimum)
         throw Error('Use finite seconds: minimum > 0 and 0 <= retain < minimum.')
-      const wave = await waveformAsset(snapshot.asset)
+      const silences = await findAssetSilences(snapshot.asset)
       assertCurrent(snapshot)
-      proposed = pauseCuts(wave.silences, clips(snapshot), words, minimum, retain)
-      detail = { pause: { minimum, retain, silences: timelineSilences(wave.silences, clips(snapshot)) } }
+      proposed = pauseCuts(silences, clips(snapshot), words, minimum, retain)
+      detail = { pause: { minimum, retain, silences: timelineSilences(silences, clips(snapshot)) } }
     } else throw Error('Choose fillers or pauses.')
     const cuts = reviewedCuts(snapshot, proposed)
     if (!cuts.length) return { status: 'no-matches', message: 'No matching cleanup suggestions; nothing changed.' }

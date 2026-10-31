@@ -17,7 +17,6 @@ import {
   FrameRate,
   Name,
   setPlayhead,
-  waveformAsset,
 } from '@diffusionstudio/runtime'
 import type { Entity } from 'koota'
 import { toast } from 'somoto'
@@ -58,6 +57,7 @@ import {
   type SpeechScene,
 } from './editor'
 import { loadTranscript, saveTranscript, speechSourcePath } from './store'
+import { findAssetSilences } from './silences'
 import {
   cleanSceneName,
   cutContent,
@@ -867,16 +867,16 @@ export function SpeechPanel() {
                       void run(async () => {
                         const state = snapshot()!
                         setMessage('Listening for pauses in the recording…')
-                        const wave = await waveformAsset(state.asset)
+                        const silences = await findAssetSilences(state.asset)
                         assertCurrent(state)
                         propose(
-                          pauseCuts(wave.silences, clips(state), words(), minimum(), retain()),
+                          pauseCuts(silences, clips(state), words(), minimum(), retain()),
                           'Shorten pauses',
                           {
                             pause: {
                               minimum: minimum(),
                               retain: retain(),
-                              silences: timelineSilences(wave.silences, clips(state)),
+                              silences: timelineSilences(silences, clips(state)),
                             },
                           },
                         )

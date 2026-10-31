@@ -347,7 +347,7 @@
         },
         {
           "name": "proposeCutSpeechCleanup",
-          "description": "Propose filler/repetition removal or shorten real audio silences using waveform analysis. Read getCutTranscript for the current baseHash first. Optional speech service is only needed to create the saved transcript. No uploads. User reviews and applies; nothing changes immediately. Repetitions are suggestions, not certain mistakes. Replies with cutCount, removedSeconds and the first 50 cuts (cutsNotListed says how many more); the review holds them all.",
+          "description": "Propose filler/repetition removal or shorten real audio silences, measured against the recording's own background noise (music or steady noise has none). Read getCutTranscript for the current baseHash first. Optional speech service is only needed to create the saved transcript. No uploads. User reviews and applies; nothing changes immediately. Repetitions are suggestions, not certain mistakes. Replies with cutCount, removedSeconds and the first 50 cuts (cutsNotListed says how many more); the review holds them all.",
           "inputSchema": {
             "type": "object",
             "additionalProperties": false,
