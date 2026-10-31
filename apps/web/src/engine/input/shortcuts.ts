@@ -40,6 +40,7 @@ import { groupSelection, ungroupSelection, unwrapSequenceSelection, wrapSelectio
 import { getEditHistory } from '../history';
 import { withEmptiedTracks } from '../keyframes';
 import { cancelObjectMask, getObjectTrack, trackObjectMask, undoMaskStroke } from '../object-mask';
+import { beginPathEdit, deletePickedVertex, endPathEdit, finishPen, isPathEditing, isPenDrawing, removeLastPenVertex, selectedPath } from '../path-tool';
 import { splitAtPlayhead } from '../split';
 import { rippleDeleteSelection } from '../ripple-delete';
 import { Keys, MODIFIER_KEYS, ObjectMaskTool, Pointer } from '../traits';
@@ -482,10 +483,25 @@ const maskStrokeToUndo = (world: World): boolean => {
 
 const clipPathTool = (world: World): boolean => world.get(Tool)?.value === ToolType.CLIP_PATH;
 
+/** Enter on a lone selected path edits its vertices, where it would otherwise step into children. */
+const pathToEdit = (world: World): boolean => world.get(Tool)?.value === ToolType.MOVE && selectedPath(world) !== null;
+const editSelectedPath = (world: World): void => beginPathEdit(world, selectedPath(world)!);
+
 const PRESSED_SHORTCUTS: readonly Shortcut[] = [
 	// Clip path tool shortcuts, ahead of the Esc and ⌘↵ the rest of the editor answers to.
 	{ keys: ['escape'], action: cancelClipPath, active: clipPathTool },
 	{ keys: ['enter', 'mod', '!shift', '!alt'], action: applyClipPaths, active: clipPathTool },
+	// The pen ends its path on Esc or Enter and takes back its last vertex on
+	// Delete; the path editor goes down on Esc or Enter, and Delete takes out
+	// its picked vertex rather than the path.
+	{ keys: ['escape'], action: (world) => finishPen(world, false), active: isPenDrawing },
+	{ keys: ['enter', '!mod'], action: (world) => finishPen(world, false), active: isPenDrawing },
+	{ keys: ['backspace'], action: removeLastPenVertex, active: isPenDrawing },
+	{ keys: ['delete'], action: removeLastPenVertex, active: isPenDrawing },
+	{ keys: ['escape'], action: endPathEdit, active: isPathEditing },
+	{ keys: ['enter', '!mod'], action: endPathEdit, active: isPathEditing },
+	{ keys: ['backspace'], action: deletePickedVertex, active: isPathEditing },
+	{ keys: ['delete'], action: deletePickedVertex, active: isPathEditing },
 	{ keys: ['z', 'mod', '!shift'], action: undoEdit },
 	{ keys: ['z', 'mod', 'shift'], action: redoEdit },
 	{ keys: ['backspace', '!shift'], action: deleteSelection },
@@ -516,6 +532,7 @@ const PRESSED_SHORTCUTS: readonly Shortcut[] = [
 	{ keys: ['t', '!mod'], action: selectTool(ToolType.TEXT) },
 	{ keys: ['r', '!mod'], action: selectTool(ToolType.RECT) },
 	{ keys: ['o', '!mod'], action: selectTool(ToolType.ELLIPSE) },
+	{ keys: ['p', '!mod'], action: selectTool(ToolType.PEN), active: (world) => !objectMaskTool(world) },
 	{ keys: ['m', '!mod'], action: selectTool(ToolType.OBJECT_MASK) },
 	{ keys: ['a', '!mod'], action: seekFrames(-1) },
 	{ keys: ['d', '!mod'], action: seekFrames(1) },
@@ -532,6 +549,7 @@ const PRESSED_SHORTCUTS: readonly Shortcut[] = [
 	{ keys: [']', '!mod'], action: restack('front') },
 	{ keys: ['[', '!mod'], action: restack('back') },
 	{ keys: ['\\', '!mod'], action: selectParents },
+	{ keys: ['enter', '!mod'], action: editSelectedPath, active: pathToEdit },
 	{ keys: ['enter', '!mod'], action: selectChildren },
 	{ keys: ['escape'], action: deselect },
 	{ keys: ['arrowleft', '!shift'], action: nudge(-NUDGE, 0) },

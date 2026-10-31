@@ -26,3 +26,5 @@ export * from './keyframes';
 export * from './align';
 export * from './object-mask';
 export * from './clip-path';
+export * from './path-tool';
+export * from './gradient-tool';
