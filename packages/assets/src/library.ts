@@ -345,7 +345,9 @@ export class AssetLibrary {
 			return this.describeSequence(record.source, frames, { path: record.path, createdAt: record.createdAt });
 		}
 
-		if (record.stat && stat.size === record.stat.size && stat.mtime === record.stat.mtime) {
+		// The recorded mtime is a File's `lastModified`, whole milliseconds; a
+		// host's stat may carry the fraction, which is no change.
+		if (record.stat && stat.size === record.stat.size && Math.floor(stat.mtime) === record.stat.mtime) {
 			return this.attach(record);
 		}
 		return this.describeFile(record.source, {
