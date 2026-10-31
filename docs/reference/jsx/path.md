@@ -29,7 +29,7 @@ A `d` that does not parse draws what came before the error, as SVG does, and the
 
 `d` is in the box's own pixels, `0 0` at its top-left, unless a `viewBox` says otherwise. With a `viewBox`, `d` is drawn from that rectangle and stretched to fill the box on each axis (SVG's `preserveAspectRatio="none"`), so resizing the box resizes the outline without `d` changing, and a `width`/`height` keyframe stretches the path. Strokes are not stretched: a 6 px stroke stays 6 px wide.
 
-PureCut does not draw or edit a path's vertices on the canvas yet: the source, or an agent, writes `d`. Give a path a `viewBox` when its outline should follow its box as the box is resized on the canvas; without one, resizing the box leaves the outline where `d` puts it.
+A path drawn or edited on the canvas (see [On the canvas](#on-the-canvas)) is written with its `d` in its box's pixels and a `viewBox` of `"0 0 width height"`, so it stretches when its box is resized. Resizing a path that has no `viewBox` on the canvas first gives it one of its box as it stands, so its outline stretches with the box rather than staying where `d` puts it.
 
 ## Animating the outline
 
@@ -65,4 +65,13 @@ A `d` [keyframe track](./keyframes.md) morphs the outline: each keyframe's `valu
 
 ## On the canvas
 
-A click picks up a path inside what it fills, or within reach of its outline (its widest stroke, plus a few pixels), so open unfilled paths can be picked up too.
+- **Pen (P)**, on the toolbar beside the shapes, draws a new path one vertex at a time. Click to place a corner; drag to place a smooth vertex and pull out its handles. Click the first vertex to close the path; press Enter or Esc to leave it open, and Delete or Backspace to take back the last vertex. The path lands in the scene its first vertex was placed in, with a light grey 4 px stroke and a box fitted to it, and is selected for the move tool. It is written as `<path x y width height d viewBox>` with a `<stroke>` child.
+- **Edit (Enter, or double-click a path)** shows the vertices; the Pen button stays lit meanwhile:
+  - Drag a vertex, or one of the picked vertex's handles. A smooth vertex's other handle turns with it; hold Alt to move one handle on its own.
+  - Double-click a vertex to turn it into a corner or make it smooth.
+  - Click on the outline to add a vertex there.
+  - Delete or Backspace removes the picked vertex.
+  - Enter, Esc or a click away from the path finishes editing, and the box is fitted to the outline again (every `d` keyframe's outline at once), without anything moving on the canvas.
+- Adding or removing a vertex changes every `d` keyframe the same way, so they keep morphing into each other. Moving a vertex while the path has a `d` track writes the keyframe at the playhead.
+- A locked path, or one inside a locked node, cannot be edited: Enter and double-click do nothing.
+- A click picks up a path inside what it fills, or within reach of its outline (its widest stroke, plus a few pixels), so open unfilled paths can be picked up too.

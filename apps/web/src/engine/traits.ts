@@ -11,7 +11,10 @@
 
 import { trait } from 'koota';
 
-import type { CanvasPointerEvent, Point } from '@diffusionstudio/runtime';
+import type { Entity } from 'koota';
+import type { CanvasPointerEvent, PathGeometry, Point } from '@diffusionstudio/runtime';
+import type { GradientHandle } from './gradient-tool';
+import type { PathPart, PenVertex } from './path-tool';
 import type { ObjectMaskMode, ObjectMaskOp } from './object-mask/store';
 import type { ProjectConfig as ProjectConfigStore } from './project-config';
 
@@ -86,6 +89,51 @@ export const ObjectMaskTool = trait({
 	op: 'add' as ObjectMaskOp,
 	brushRadius: 0.03,
 	brushShown: false,
+});
+
+/**
+ * What the gradient tools are aimed at: the paint whose handles the HUD
+ * draws and the node whose box places it, both null while no gradient
+ * picker is open, and the handle a press landed on, until its release.
+ */
+export const GradientTool = trait({
+	node: null as Entity | null,
+	paint: null as Entity | null,
+	held: null as GradientHandle | null,
+});
+
+/**
+ * The path the pen is drawing: the `vertices` put down so far, in document
+ * space, and the scene the first press landed in, which the path goes into.
+ * `drawing` is whether the press that placed the last vertex is still down,
+ * pulling out its handles. The box tools (rect, ellipse, polygon, scene,
+ * text) draw on the DOM overlay instead (`components/canvas/draw-overlay`),
+ * one press per node; the pen takes a press per vertex, so it lives on the
+ * stage with the HUD.
+ */
+export const PenTool = trait({
+	drawing: false,
+	scene: null as Entity | null,
+	vertices: () => [] as PenVertex[],
+});
+
+/**
+ * The path whose vertices are being edited, null while none is. `subpath`
+ * and `vertex` are the vertex picked (-1 for none). While a press holds a
+ * vertex or a handle, `held` is which part, `heldVertex` whose (a handle can
+ * be a neighbor's of the picked vertex), `start` the outline as the press
+ * found it and `originX`/`originY` where it went down, in the `d`'s
+ * coordinates.
+ */
+export const PathEditor = trait({
+	entity: null as Entity | null,
+	subpath: -1,
+	vertex: -1,
+	held: null as PathPart | null,
+	heldVertex: -1,
+	start: () => null as PathGeometry | null,
+	originX: 0,
+	originY: 0,
 });
 
 /**

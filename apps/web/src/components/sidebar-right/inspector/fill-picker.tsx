@@ -230,7 +230,7 @@ export function FillPicker(props: FillPickerProps) {
             <SolidFillPicker fill={props.fill} />
           </Show>
           <Show when={currentTab() === "gradient"}>
-            <GradientFillPicker fill={props.fill} onChangeKind={handleGradientKindChange} />
+            <GradientFillPicker node={props.node} fill={props.fill} onChangeKind={handleGradientKindChange} />
           </Show>
           <Show when={currentTab() === "asset"}>
             <AssetFillPicker node={props.node} fill={props.fill} onSelectAsset={handleSelectAsset} />

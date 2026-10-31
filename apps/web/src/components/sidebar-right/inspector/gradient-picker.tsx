@@ -40,11 +40,14 @@ import { ColorStop as ColorStopElement } from "@diffusionstudio/reconciler";
 import { Computed, Paint, PaintType, colorToHex, parseColor } from "@diffusionstudio/runtime";
 import { useDerived, useEditor } from "@/engine/hooks";
 import { syncKeyframe } from "@/engine/keyframes";
+import { beginGradientTool, endGradientTool } from "@/engine/gradient-tool";
 import { readGradientStops, sameGradientStops, type GradientStop } from "./gradient-stops";
 
 import type { Entity } from "koota";
 
 export type GradientPickerProps = {
+  /** The node the gradient paints, whose box places its handles on the canvas. */
+  node: Entity;
   fill: Entity;
   /** Swaps the gradient for one of another kind, which is another element. */
   onChangeKind(kind: GradientKind): void;
@@ -106,6 +109,13 @@ export function GradientFillPicker(props: GradientPickerProps) {
   const [colorPickerStop, setColorPickerStop] = createSignal<Entity | null>(null);
 
   const stops = useDerived(() => readGradientStops(world, props.fill), sameGradientStops);
+
+  // While the picker is open the gradient's handles are on the canvas.
+  createEffect(() => {
+    const { node, fill } = props;
+    beginGradientTool(world, node, fill);
+    onCleanup(() => endGradientTool(world, fill));
+  });
 
   const paint = useTrait(() => props.fill, Paint);
   const rotation = useDerived(() => props.fill.get(Computed)?.rotation ?? DEFAULT_ROTATION);

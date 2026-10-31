@@ -49,11 +49,29 @@ Editor:
 
 Not yet:
 
-- The Pen and path-edit tool (upstream 5552978, e13b7f9, 3dbdb22, 2c736e5's canvas parts). It needs upstream's draw-tool and path-editor state, its HUD and its pointer dispatch, so a path is written in the source for now.
-- The on-canvas gradient handles (acb7092's `gradient-tool.ts`).
+- ~~The Pen and path-edit tool~~ and ~~the on-canvas gradient handles~~: taken in feat/pen-tool (below).
 - Stroke paint children in the inspector.
 
 Checks: `scripts/browser-shapes-check.ts`, run by `test:purecut`, renders an ellipse, a pentagon, a dashed path and an angular gradient through the export and measures the frame (`/tmp/purecut-visual/shapes.png`).
+
+## Pen, path editing and gradient handles (feat/pen-tool)
+
+The editor half of the shapes family: upstream's `path-tool.tsx` (5552978, e13b7f9), `gradient-tool.ts` (acb7092) and the canvas parts of the pivot change (2c736e5), ported onto PureCut's editor.
+
+How it fits PureCut:
+
+- **Pointer dispatch.** PureCut already had upstream's hit regions and `DispatchedPointerEvent` (the object mask and the selection handles use them), so 3dbdb22's dispatch needed nothing new. What 3dbdb22 also did, moving the rect, ellipse, polygon, scene and text tools off the DOM draw overlay onto the HUD, is not taken: PureCut keeps `components/canvas/draw-overlay.tsx` for those. The Pen and the path editor draw on the HUD and push their own hit regions over the stage, as upstream's do, since the pen takes a press per vertex and the editor's targets are the outline's own points.
+- **State.** Upstream's `DrawTool` trait (box tools and pen together) is `PenTool` here, holding only the pen's vertices and scene; `PathEditor` and `GradientTool` are upstream's.
+- **Writing paths.** A pen path is written as `<path x y width height d viewBox>` with a `<stroke>`, its `d` in the box's pixels and its `viewBox` the box (`"0 0 width height"`), so it stretches when resized. Upstream writes no `viewBox` and, after an edit, folds it away; here the fit after an edit writes the box's pixels as the new `viewBox`. Resizing a path without one pins one first (upstream's `pinViewBox`).
+- **Locking.** The editor will not go up on a locked path (or one inside a locked node) and goes down if its path is locked under it; Enter on a locked path falls through to selecting its children. Gradient handles are not drawn on a locked node. Edits go through `DocumentEditor`, which refuses locked targets anyway.
+- **Toolbar and keys.** A Pen button (P) after the shapes, with a `cut-tool.pen` icon in the toolbar's style; it stays lit while a path is being edited. The Tools menu gains Ellipse, Polygon and Pen; the keys sheet gains O, P and Enter.
+- **Additions over upstream.** Delete or Backspace takes back the pen's last vertex. A double-click on an already selected path lands on the selection mask rather than the path, so the mask's double-click opens the path editor too (upstream drills into children there and so does nothing for a path). The selection's handles step aside while the pen is drawing. The timeline names unnamed ellipses, polygons and paths.
+- **Pivot.** The merged runtime turns a node about `entityPivot` (its `pivotX`/`pivotY`, else its anchor; a group without one about its origin), so the resize, rotate and move gestures, the clip path tool and the container bake now use it, Group (⌘G) authors a pivot at the members' center, and the inspector's anchor row is a Pivot row for a group or a node with a pivot (2c736e5's `pivot-row.tsx`). Before this the gestures still took the pivot as anchor × size, which the runtime no longer does for a group or a node with a pivot, so those jumped under a resize or rotation.
+- **Gradient handles.** The gradient picker puts its paint's handles up while it is open (`beginGradientTool`), and takes them down on close.
+
+Not taken: upstream's path inspector section (`inspector/path.tsx`: fill rule and trims), the trim icons, and stroke paint children in the inspector.
+
+Checks: `scripts/test-editor-visual.mjs` drives the Pen in the full editor, in light and dark, through `scripts/pen-visual-fixture.tsx`: the toolbar's Pen button, a corner, a dragged smooth vertex and a click on the first vertex to close; Enter, a vertex dragged and Esc (the box refits, `viewBox` and all); a double-click, a click on the outline to add a vertex and Backspace to remove it; P, two clicks and Enter for an open path; and a linear gradient's end handle dragged on the canvas. Screenshots: `/tmp/purecut-visual/pen-drawing-*.png`, `path-edit-*.png`, `gradient-handles-*.png`.
 
 ## Not taken, by feature family
 
@@ -61,7 +79,6 @@ Most of upstream's new work builds on features PureCut has not adopted. In parti
 
 | Family | Upstream commits | Why not now | What it needs |
 | --- | --- | --- | --- |
-| Pen and path editing; on-canvas gradient handles | 5552978, e13b7f9, 3dbdb22, 2c736e5 (canvas), acb7092 (`gradient-tool.ts`) | The engine side is taken (above). The tools need upstream's draw-tool and path-editor state, HUD and pointer dispatch, which PureCut's editor does not have. | A port of `path-tool.tsx` and `gradient-tool.ts` onto PureCut's input system and overlay. |
 | Masks from any shape (the Mask tool replaces the Clip path tool; "Use as mask"; mask `type` channel) | 075732f, 783edc2, 6a45d56, e2d070f | Needs the shapes family first. It would also replace PureCut's Clip path tool, which was ported on 8 October. | The shapes family, then a decision on retiring the Clip path tool. |
 | Silence removal as a command | b8f0615 (command and UI), b01a79a | PureCut already shortens pauses inside its transcript cleanup, with review before anything is cut, and never cuts words; a second command would duplicate it. Its detector is taken (above). | Nothing. |
 | Right-click menus and arranging: node context menu, layer toggles, clean-up into a grid, multi-select of assets and folders, moving and renaming folders, pasting media from the clipboard, middle-ellipsis names | d3d2a0b, 6c6349a, efbc257, 7760cb5, fb8a924, c897d7b, 53aa33e, 893eab6, 82ebd30, 8d657e5, 7b3e1fc, 78b0580, d68a336, 8107138, 9ccaac4, 090669c, 9d8327b, e53775d, 2609b28, 5ac1c05 (taken) | Built on upstream's new command system and its menu components, and PureCut's sidebar and canvas menus are its own. | Port the engine actions (`align.ts` grid clean-up, clipboard import, folder moves) behind PureCut's existing menus. |
