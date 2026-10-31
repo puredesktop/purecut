@@ -4,6 +4,7 @@
 
 import { CaptionAlign, CaptionType, FontStyle, TextAlign, TextBaseline, TextCase } from '../../constants';
 import { renderText } from '../../utils/text';
+import { loadWebFont } from '../../fonts/utils';
 import { groupBy, findActiveGroup, resolveTranscript, setChars } from './utils';
 import { placeCaption } from './position';
 
@@ -58,6 +59,7 @@ export class WhisperCaptionDecoder implements CaptionDecoder {
 	public applyStyles(world: World, entity: Entity): boolean {
 		if (!this.reposition(world, entity)) return false;
 
+		loadWebFont(world, WHISPER_TEXT_STYLE.fontFamily);
 		return true;
 	}
 

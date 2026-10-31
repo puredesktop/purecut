@@ -6,6 +6,7 @@ import { store } from '../../world/store';
 import { CaptionAlign, CaptionType, PaintType, FontStyle, TextAlign, TextBaseline, TextCase } from '../../constants';
 import { Paint, Color, Caption, Computed, TextRange } from '../../traits';
 import { renderText } from '../../utils/text';
+import { loadWebFont } from '../../fonts/utils';
 import { groupBy, findActiveGroup, clearTextRanges, resolveTranscript, setChars } from './utils';
 import { placeCaption } from './position';
 import { createEntity } from '../../actions/entities';
@@ -65,6 +66,7 @@ export class SpotlightCaptionDecoder implements CaptionDecoder {
 	public applyStyles(world: World, entity: Entity): boolean {
 		if (!this.reposition(world, entity)) return false;
 
+		loadWebFont(world, SPOTLIGHT_TEXT_STYLE.fontFamily);
 		return true;
 	}
 
