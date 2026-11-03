@@ -1,3 +1,4 @@
+import { heldInRoom } from '../held'
 import './panel.css'
 import { getEditHistory } from '@/engine/history'
 import {
@@ -212,7 +213,7 @@ export function SpeechPanel() {
   const handleKey = (event: KeyboardEvent) => {
     event.stopPropagation()
     if ((event.target as HTMLElement).closest('input, textarea')) return
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !heldInRoom()) {
       event.preventDefault()
       void run(async () => {
         setSpeechReview(null)
@@ -220,7 +221,7 @@ export function SpeechPanel() {
         event.shiftKey ? history.redo() : history.undo()
         await refresh()
       })
-    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+    } else if ((event.key === 'Delete' || event.key === 'Backspace') && !heldInRoom()) {
       event.preventDefault()
       cutSelection()
     } else if (event.key === 'Escape') {
@@ -659,7 +660,13 @@ export function SpeechPanel() {
             New transcription is unavailable: {unavailableShort()}. This transcript, cleanup, captions and search keep working.
           </p>
         </Show>
-        <Show when={!transcript()}>
+        <Show when={!transcript() && heldInRoom()}>
+          <div class="cut-held-none" role="status">
+            <strong>No transcript yet</strong>
+            <span>Make one in the full app, and it can be read and searched here.</span>
+          </div>
+        </Show>
+        <Show when={!transcript() && !heldInRoom()}>
           <div class="cut-transcription-start">
           <ol class="cut-transcription-steps" aria-label="Transcription steps">
             <li classList={{ 'is-current': sceneProblem()?.reason === 'no-recording' }}>1 · Add recording</li>

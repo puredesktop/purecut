@@ -12,6 +12,8 @@ import { clearObjectTrackOf, clearObjectTracks, settleTrackRequestOf, settleTrac
 import { shortcutSystem } from './input/shortcuts';
 import { ownsKeyboardEvent } from './input/keyboard-target';
 import { Playback, stopPlayback } from '@diffusionstudio/runtime';
+import { heldInRoom } from '../../../../purecut/held';
+import { nextFrameDelay } from '../../../../purecut/lib/held-rules';
 
 import type { RuntimeWorld } from '@diffusionstudio/runtime';
 import type { CanvasPointerEvent, PointerEventType } from '@diffusionstudio/runtime';
@@ -29,6 +31,7 @@ class Engine {
 
 	private canvas: HTMLCanvasElement | null = null;
 	private rafId: number | null = null;
+	private idleTimer: ReturnType<typeof setTimeout> | undefined;
 	private lastTimestamp: number | null = null;
 	private resizeObserver = new ResizeObserver(this.resize.bind(this));
 
@@ -122,6 +125,8 @@ class Engine {
 	 * wait for the frame — backspace would have navigated by then.
 	 */
 	private readonly onKeyDown = (event: KeyboardEvent) => {
+		// A held copy edits nothing from the keyboard, and the conversation around it keeps its keys.
+		if (heldInRoom()) return;
 		if (ownsKeyboardEvent(event)) return;
 
 		const keys = this.world.get(Keys)!;
@@ -174,7 +179,11 @@ class Engine {
 		keys?.pressed.clear();
 		keys?.lifted.clear();
 
-		this.rafId = requestAnimationFrame(this.loop);
+		// Held in a page and not playing, it only wakes to show what has loaded: no drawing at full tilt beside a conversation.
+		const playing = this.world.query(Playback).some((scene) => scene.get(Playback)?.playing);
+		const wait = nextFrameDelay(heldInRoom(), !!playing);
+		if (wait === null) this.rafId = requestAnimationFrame(this.loop);
+		else this.idleTimer = setTimeout(() => { this.rafId = requestAnimationFrame(this.loop); }, wait);
 	}
 
 	private resize(): void {
@@ -251,6 +260,7 @@ class Engine {
 
 	public stop(): void {
 		this.setRunning(false);
+		clearTimeout(this.idleTimer);
 		if (this.rafId !== null) {
 			cancelAnimationFrame(this.rafId);
 			this.rafId = null;

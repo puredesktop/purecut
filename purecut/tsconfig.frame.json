@@ -18,6 +18,7 @@
   },
   "include": [
     "frame.tsx",
+    "held-frame.tsx",
     "integration-runtime.d.ts"
   ]
 }

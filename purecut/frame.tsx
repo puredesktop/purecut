@@ -15,7 +15,10 @@ import {
   currentVideo,
   chooseVideo,
   renameVideo,
+  setHeldInRoom,
+  lookAtProject,
 } from "./integration-runtime.js";
+import { HeldNoVideo, useCopyRole } from "./held-frame";
 import { DocumentSwitcher } from "@purescience/platform-ui/components/common/documents/DocumentSwitcher";
 import { DocumentHeaderActions } from "@purescience/platform-ui/components/common/documents/DocumentHeaderActions";
 import {
@@ -24,6 +27,10 @@ import {
 } from "@purescience/platform-ui/bridge/documents.mjs";
 import { readPlatformTextFile } from "@purescience/platform-ui/bridge/fs.mjs";
 const suffixes = [".cut"];
+/** A copy hears of what another saved when it comes to the front, and this often while it is on screen. */
+const LOOK_EVERY_MS = 15_000;
+// held inside another app's page: it lies flat in that page rather than as a page of its own (only while compact)
+if (window.parent !== window.top) document.documentElement.setAttribute("data-held-in-room", "");
 async function loadPreview(item: { path: string }) {
   const pkg = JSON.parse(
     await readPlatformTextFile(item.path + "/package.json"),
@@ -35,6 +42,9 @@ async function loadPreview(item: { path: string }) {
   };
 }
 function App() {
+  const role = useCopyRole();
+  const compact = role.compact;
+  setHeldInRoom(compact);
   const [boot, setBoot] = useState(false),
     [failure, setFailure] = useState("");
   const [switcher, setSwitcher] = useState(false);
@@ -69,7 +79,8 @@ function App() {
       const p = await currentVideo();
       if (attempt !== generation) return;
       setVideo(p);
-      if (p) {
+      // Looking at a video from a page is not opening it: the library and recents are the normal tab's.
+      if (p && !role.second) {
         await registerPlatformAppObject({ appSlug: "cut", path: p.dir });
         await touchPlatformRecentDocument({
           appSlug: "cut",
@@ -93,12 +104,24 @@ function App() {
       window.removeEventListener("hashchange", changed);
       window.removeEventListener("keydown", key);
     };
-  }, [boot]);
+  }, [boot, role.second]);
+  useEffect(() => {
+    if (!boot || !video) return;
+    const look = () => void lookAtProject(video.dir).catch((e) => console.warn("[PureCut] Could not look for changes", e));
+    const onScreen = () => { if (!document.hidden) look(); };
+    look();
+    const timer = window.setInterval(onScreen, LOOK_EVERY_MS);
+    window.addEventListener("focus", look);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", look);
+    };
+  }, [boot, video?.dir]);
   const { ready, meta, error } = usePlatformBridge();
   const { resource, clearResource } = usePlatformViewportResource(ready, meta);
   const slot = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !role.known) return;
     let disposed = false;
     let unmount: (() => void) | undefined;
     (async () => {
@@ -112,8 +135,9 @@ function App() {
       await registerDrawer();
       if (disposed) return;
       setBoot(true);
-      // Library reconciliation must not delay opening the requested workspace.
-      void prepareDocuments().catch((e) => {
+      // Library reconciliation must not delay opening the requested workspace. It is the normal tab's to do, one at a time.
+      if (role.second) return;
+      void navigator.locks.request("purecut-library-upkeep", { ifAvailable: true }, (lock) => lock ? prepareDocuments() : undefined).catch((e) => {
         if (!disposed) console.warn('[PureCut] Could not reconcile the video library', e);
       });
     })().catch((e) => setFailure(e.message));
@@ -121,7 +145,7 @@ function App() {
       disposed = true;
       unmount?.();
     };
-  }, [ready]);
+  }, [ready, role.known, role.second]);
   useEffect(() => {
     if (!boot || !resource) return;
     let cancelled = false;
@@ -140,6 +164,7 @@ function App() {
   }, [boot, resource]);
   return (
     <AppFrame
+      {...(compact ? { "data-compact-room": "" } : undefined)}
       style={{
         background: "transparent",
         color: "var(--platform-colors-text)",
@@ -168,7 +193,8 @@ function App() {
             : "Opening your video workspace…"}
         </div>
       )}
-      {boot && (home || switcher) && (
+      {boot && compact && home && <HeldNoVideo />}
+      {boot && !compact && (home || switcher) && (
         <DocumentSwitcher
           appSlug="cut"
           suffixes={suffixes}

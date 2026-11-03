@@ -1,4 +1,5 @@
 export { initializeTransport } from "./transport";
+export { setHeldInRoom } from "./held";
 export async function mountEditor(target: HTMLElement) {
   return (await import("./entry")).mountEditor(target);
 }
@@ -44,4 +45,8 @@ export async function chooseVideo() {
 export async function renameVideo(path: string, title: string) {
   await (await import("@/projects/edits")).flushPendingProjectEdits();
   return (await import("@/projects/host")).renameProject(path, title);
+}
+/** Another live copy may have saved: the editor hears of it as it would of a hand edit. */
+export async function lookAtProject(dir: string) {
+  await (await import("./transport")).request("purecut:look", { dir });
 }

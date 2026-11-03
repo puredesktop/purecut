@@ -10,10 +10,10 @@ const emit = (channel: string, data: any) =>
 let service: import("./lib/projects").ProjectService;
 export async function initializeTransport() {
   const { ProjectService } = await import("./lib/projects");
-  service = new ProjectService(undefined, (dir) =>
+  service = new ProjectService(undefined, (dir, file = "index.tsx") =>
     emit(MAIN_WIRE.EVENT, {
       channel: "projects:changed",
-      data: { dir, path: "index.tsx" },
+      data: { dir, path: file },
     }),
   );
   await service.init();

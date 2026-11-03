@@ -6,6 +6,8 @@ import {
 import { request, runTool } from "./transport";
 import { toast } from "somoto";
 import { applyReviewedSource } from "./source-change";
+import { heldInRoom } from "./held";
+import { heldRefusal } from "./lib/held-rules";
 
 function announceSourceChange(change: Awaited<ReturnType<typeof applyReviewedSource>>) {
   const label = change.isApplied() ? "Undo" : "Redo";
@@ -24,6 +26,8 @@ function announceSourceChange(change: Awaited<ReturnType<typeof applyReviewedSou
   });
 }
 export async function cutTool(name: string, args: any = {}) {
+  const refused = heldRefusal(heldInRoom(), name);
+  if (refused) throw Error(refused);
   if (["getCutTranscript", "proposeCutSpeechEdit", "proposeCutSpeechCleanup", "proposeCutCaptions", "openCutTranscript"].includes(name))
     return (await import("./speech/tools")).speechTool(name,args);
   await (await import("@/projects/edits")).flushPendingProjectEdits();
