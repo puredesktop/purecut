@@ -1,4 +1,4 @@
-import { parse, stringify } from "yaml";
+import { stringify } from "yaml";
 import {
   files,
   join,
@@ -8,6 +8,7 @@ import {
   type ProjectFiles,
 } from "./platform-files";
 import { holdMediaStaging, sweepMediaStaging } from "./media-staging";
+import { ProjectRecords } from "./project-records";
 import { starter } from "./starter";
 import { validateScopedEdits } from "./scoped-edits";
 import { readCompiledSource, rememberCompiledSource } from './compile-cache';
@@ -31,10 +32,13 @@ export class ProjectService {
       publishing: boolean;
     }
   >();
+  private records: ProjectRecords;
   constructor(
     private fs: ProjectFiles = files,
-    private changed: (dir: string) => void = () => {},
-  ) {}
+    private changed: (dir: string, file?: string) => void = () => {},
+  ) {
+    this.records = new ProjectRecords(fs, changed);
+  }
   async init() {
     this.root = await this.fs.root();
     try {
@@ -230,7 +234,7 @@ export class ProjectService {
       }
       return;
     }
-    const { dir, pkg } = await this.project(d.dir);
+    const { dir } = await this.project(d.dir);
     if (["projects:get", "projects:resolve", "projects:init"].includes(channel))
       return this.info(dir);
     if (["projects:watch", "projects:unwatch"].includes(channel)) return;
@@ -320,20 +324,18 @@ export class ProjectService {
           : result;
     }
     if (channel === "projects:rename") {
-      pkg.displayName = String(d.displayName).slice(0, 120);
-      await this.fs.write(join(dir, "package.json"), JSON.stringify(pkg));
+      await this.records.rename(dir, String(d.displayName).slice(0, 120));
       return this.info(dir);
     }
     if (channel === "projects:manifest-read")
-      return parse(await this.fs.read(join(dir, "assets.yml")));
+      return this.records.readManifest(dir);
     if (channel === "projects:manifest-write") {
-      await this.fs.write(join(dir, "assets.yml"), stringify(d.manifest));
+      await this.records.writeManifest(dir, d.manifest);
       return;
     }
-    if (channel === "projects:config-read") return pkg.diffusion ?? null;
+    if (channel === "projects:config-read") return this.records.readConfig(dir);
     if (channel === "projects:config-write") {
-      pkg.diffusion = d.config;
-      await this.fs.write(join(dir, "package.json"), JSON.stringify(pkg));
+      await this.records.writeConfig(dir, d.config);
       return;
     }
     if (channel.startsWith("projects:fs-")) {
