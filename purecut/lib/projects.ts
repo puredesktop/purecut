@@ -239,6 +239,7 @@ export class ProjectService {
       return this.info(dir);
     if (["projects:watch", "projects:unwatch"].includes(channel)) return;
     if (channel === "purecut:source") return this.readSource(dir);
+    if (channel === "purecut:look") return this.records.look(dir);
     if (
       ["projects:compile", "projects:write", "purecut:replace", "purecut:prepare", "purecut:prepare-edits"].includes(
         channel,
@@ -313,6 +314,7 @@ export class ProjectService {
             "Source changed outside the editor; reload before saving",
           );
         await this.fs.write(join(dir, "index.tsx"), source.value);
+        this.records.ownSource(dir, source.value);
         if (channel === "purecut:replace") this.changed(dir);
       }
       const sourceHash = await hash(source.value);

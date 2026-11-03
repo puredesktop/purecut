@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { parse, stringify } from 'yaml'
 
 import { ProjectRecords } from './project-records'
+import type { ManifestShape } from './record-merge'
 import type { ProjectFiles } from './platform-files'
 
 /**
@@ -50,7 +51,7 @@ const manifest = (d: Disk) => parse(d.data.get(`${DIR}/assets.yml`)!) as { folde
 const ids = (d: Disk) => manifest(d).assets.map(a => a.id).sort()
 const config = (d: Disk) => (JSON.parse(d.data.get(`${DIR}/package.json`)!) as { diffusion?: Record<string, any> }).diffusion
 const readManifest = (c: ReturnType<typeof copyOf>) => inTurn(() => c.records.readManifest(DIR))
-const writeManifest = (c: ReturnType<typeof copyOf>, m: unknown) => inTurn(() => c.records.writeManifest(DIR, m))
+const writeManifest = (c: ReturnType<typeof copyOf>, m: ManifestShape) => inTurn(() => c.records.writeManifest(DIR, m))
 const readConfig = (c: ReturnType<typeof copyOf>) => inTurn(() => c.records.readConfig(DIR))
 const writeConfig = (c: ReturnType<typeof copyOf>, value: unknown) => inTurn(() => c.records.writeConfig(DIR, value))
 
@@ -129,7 +130,7 @@ describe('the project\'s settings, saved whole from each copy\'s memory', () => 
 })
 
 describe('a copy picks up what the other did', () => {
-  const look = (c: ReturnType<typeof copyOf>) => inTurn(() => (c.records as unknown as { look: (dir: string) => Promise<void> }).look(DIR))
+  const look = (c: ReturnType<typeof copyOf>) => inTurn(() => c.records.look(DIR))
   const saveSource = (d: Disk, text: string) => d.data.set(`${DIR}/index.tsx`, text)
 
   it('its first look only learns where things stand, and a look that finds nothing new is quiet', async () => {
@@ -156,7 +157,7 @@ describe('a copy picks up what the other did', () => {
     const d = disk()
     const a = copyOf(d)
     await look(a)
-    await inTurn(() => (a.records as unknown as { ownSource: (dir: string, text: string) => Promise<void> }).ownSource(DIR, 'mine'))
+    a.records.ownSource(DIR, 'mine')
     saveSource(d, 'mine')
     a.changes.length = 0
     const m = await readManifest(a)
