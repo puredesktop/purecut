@@ -4,7 +4,9 @@
 
 import { Show, createMemo, createSignal, onMount } from "solid-js";
 import { Canvas } from "@/components/canvas";
-import { speechOpen } from "../../../../purecut/speech/review";
+import { speechOpen, setSpeechOpen } from "../../../../purecut/speech/review";
+import { heldInRoom } from "../../../../purecut/held";
+import { HeldScenes } from "../../../../purecut/held-scenes";
 import { SpeechPanel } from "../../../../purecut/speech/panel";
 import { CommandBar } from "@/components/command-bar";
 const rightSidebarWidth = () => 264;
@@ -41,7 +43,17 @@ import type { EditWriter } from '@/projects/edits';
 const MIN_CANVAS_HEIGHT = 200;
 
 export function EditorPage() {
-  const { uiVisible, mediaVisible, inspectorVisible, timelineMinimized, timelineHeight, setTimelineHeight } = useLayout();
+  const { uiVisible: layoutVisible, mediaVisible, inspectorVisible, timelineMinimized, timelineHeight, setTimelineHeight } = useLayout();
+  // Held in a page the editor's panels stay out: the timeline in them would start decoding media for its waveforms and
+  // thumbnails. The transcript has its own Show. The layout itself is not touched, so Full app has it all back.
+  const uiVisible = () => layoutVisible() && !heldInRoom();
+  // Held, the transcript is half of what is shown. Letting go leaves the panel as the person last had it.
+  createEffect((before: boolean | undefined) => {
+    const held = heldInRoom();
+    if (held) { const open = untrack(speechOpen); setSpeechOpen(true); return before ?? open; }
+    if (before !== undefined) setSpeechOpen(before);
+    return undefined;
+  }, undefined as boolean | undefined);
   const { isDesktop, isFullscreen } = useEditorApi();
   const [resizing, setResizing] = createSignal(false);
   const [workspaceHeight, setWorkspaceHeight] = createSignal(0);
@@ -233,7 +245,8 @@ export function EditorPage() {
     onCleanup(() => {
       disposed = true;
       retryProject = () => {};
-      captureProjectCover(dir, engine.snapshot());
+      // A held copy only looked: the cover is the full app's, and taking it means another render.
+      if (!heldInRoom()) captureProjectCover(dir, engine.snapshot());
       refreshProject(dir);
       unwatch();
       unmount();
@@ -309,11 +322,12 @@ export function EditorPage() {
       <CommandBar />
     </Show>
     <div class="cut-editor-content">
-    <Show when={!!import.meta.env.VITE_PURECUT && uiVisible()}><SpeechPanel /></Show>
+    <Show when={!!import.meta.env.VITE_PURECUT && (layoutVisible() || heldInRoom())}><SpeechPanel /></Show>
     <div
       ref={workspace}
       class="bg-sidebar flex-1 min-h-0 min-w-0 overflow-hidden grid"
       classList={{
+        'relative': heldInRoom(),
         'grid-cols-[1fr]': !uiVisible(),
         'grid-rows-[1fr]': !uiVisible(),
       }}
@@ -327,6 +341,7 @@ export function EditorPage() {
         <div class="bg-border-strong" />
       </Show>
       <Canvas loading={projectLoading()} error={projectError()} onRetry={() => retryProject()} />
+      <Show when={heldInRoom()}><HeldScenes /></Show>
       <Show when={uiVisible()}>
         <div class="bg-border-strong" />
         <div class="min-w-0 overflow-hidden" style={{ visibility: inspectorVisible() && !speechOpen() ? 'visible' : 'hidden' }}>

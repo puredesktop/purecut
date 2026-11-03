@@ -1,6 +1,7 @@
 import { files, join, projectPath } from '../lib/platform-files'
 import { validateTranscript, type Transcript } from './model'
 import type { SpeechScene } from './editor'
+import { heldInRoom } from '../held'
 export const transcriptName = (assetId: string) => {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(assetId))
     throw Error('Invalid media identity.')
@@ -21,6 +22,8 @@ export async function saveTranscript(
   snapshot: SpeechScene,
   transcript: Transcript,
 ) {
+  // Saved whole from memory, and a held copy may be behind the full app: it only reads.
+  if (heldInRoom()) throw Error('Open the full app to change this transcript.')
   await files.write(
     join(snapshot.session.project.dir(), transcriptName(snapshot.asset.id)),
     JSON.stringify(validateTranscript(transcript, snapshot.asset.id)),

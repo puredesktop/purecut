@@ -1,4 +1,6 @@
 export function initializeTransport(): Promise<void>;
+export function setHeldInRoom(held: boolean): void;
+export function lookAtProject(dir: string): Promise<void>;
 export function mountEditor(target: HTMLElement): Promise<() => void>;
 export function registerDrawer(): Promise<void>;
 export function openResource(path: string): Promise<{ id: string }>;
