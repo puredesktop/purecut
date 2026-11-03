@@ -39,8 +39,8 @@ export function useCopyRole(): CopyRole {
     window.addEventListener("message", receive);
     const timer = window.setTimeout(() => { if (!told) answer(null); }, ANSWER_WAIT_MS);
     void bridge.call(PLATFORM_BRIDGE_METHODS.WORKSPACE_ADJACENT_APP).then(
-      (app) => { if (!told) answer(app); },
-      () => { if (!told) answer(null); },
+      (app) => { if (!told) { told = true; answer(app); } },
+      () => { if (!told) { told = true; answer(null); } },
     );
     return () => {
       disposed = true;
