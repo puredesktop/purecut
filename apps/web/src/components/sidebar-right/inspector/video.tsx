@@ -74,7 +74,7 @@ export function VideoPanel() {
         </div>
       </Show>
 
-      <ExportVideoButton />
+      <ExportVideoButton variant="outline" />
 
       <p class="text-xxs text-muted-foreground">
         Select a clip to see its timing, frame and sound.

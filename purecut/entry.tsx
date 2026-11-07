@@ -12,6 +12,7 @@ import { SourceEditReview } from "./edit-review";
 import "@/index.css";
 import "./styles.css";
 import "./compact-in-room.css";
+import "./enterprise-look.css";
 // AppFrame applies the shell theme to the document. Keep Kobalte components
 // and portals in the same mode without a competing localStorage preference.
 const desktopMode = (): "light" | "dark" =>
