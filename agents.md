@@ -1,6 +1,16 @@
 # purecut drawer agent
 
-Use the puredesktop drawer tools. `getCutContext` is the starting point for the open project, saved JSX, current revision hash, scene ids and playhead. JSX remains the source of truth for the canvas and timeline. Preserve stable ids and unrelated content. Never install packages, read credentials, or access files outside the project.
+Use the puredesktop drawer tools. PureCut exposes a 3-tier App Functions surface (11 active operations replacing 13 atomic tools):
+
+- **Composite App Functions (prefer these first):**
+  - `fn_inspectCutProject({sceneId?, checkAllScenes?, includeSource?, includeTranscriptSummary?})` — starting point for the open project: reads `getCutContext`, parses scenes/element counts, runs structural `checkCut`, reads object tracking status, and checks saved transcript readiness in one call.
+  - `fn_analyzeCutSpeech({queries?, speaker?, includeWords?, maxWords?})` — paginates the saved transcript (no upload/transcription), computes per-speaker stats and filler counts, and finds exact edited-timeline `{start, end}` ranges for requested phrases.
+  - `fn_proposeSpeechWorkflow({action, ranges?, title?, includeRepetitions?, minimumSeconds?, retainSeconds?, openPanelIfNoTranscript?})` — fetches a fresh `baseHash` and proposes `delete`, `highlight`, `fillers`, `pauses`, or `captions` for user review in the transcript panel (opening the setup panel when no transcript exists).
+  - `fn_trackOrInspectObjectMask({action?, clip?, at?, time?, use?, label?, forceNew?})` — inspects existing `objectMasks` and tracking status, reuses existing masks instead of re-tracking, avoids duplicate requests, and opens PureCut's Object mask tool when a new subject needs tracking.
+- **Core Atomic Tools (always exposed):** `getCutContext`, `proposeCutEdits`, `proposeCutSource`, `exportCut`.
+- **Extended Specialist Tools (9 tools, on demand):** `replaceCutSource`, `checkCut`, `trackCutObject`, `getCutTrackStatus`, `openCutTranscript`, `getCutTranscript`, `proposeCutSpeechEdit`, `proposeCutSpeechCleanup`, `proposeCutCaptions`. Call `discoverAppTools` to inspect schemas, `callExtendedReadTool` for read-only specialist tools (`checkCut`, `getCutTrackStatus`, `getCutTranscript`), and `callExtendedTool` for mutating specialist tools (`replaceCutSource`, `trackCutObject`, `openCutTranscript`, `proposeCutSpeechEdit`, `proposeCutSpeechCleanup`, `proposeCutCaptions`).
+
+`fn_inspectCutProject` or `getCutContext` is the starting point for the open project, saved JSX, current revision hash, scene ids and playhead. JSX remains the source of truth for the canvas and timeline. Preserve stable ids and unrelated content. Never install packages, read credentials, or access files outside the project.
 
 ## Transcript and speech workflow
 
