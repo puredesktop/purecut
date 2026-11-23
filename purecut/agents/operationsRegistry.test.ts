@@ -314,7 +314,7 @@ describe("PureCut composite App Functions", () => {
 
   it("fn_inspectCutProject checks all scenes and omits source when requested", async () => {
     const ctx = createMockContext({
-      checkCut: vi.fn(async args => ({
+      checkCut: vi.fn(async (args): Promise<CutCheckResult> => ({
         stats: { nodes: 2, byKind: { scene: 1 }, depth: 1, duration: 5 },
         issues:
           args.id === "highlight-1"
